@@ -111,15 +111,19 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
     else:
         print(f"Zone {zone} not assigned to any outdoor unit")
         return None, None, None
+
     required_thermo_cols = ['time_stamp', thermo_col, thermo_or_col]
     thermo_subset = thermo_df[required_thermo_cols].copy()
+
     required_df_cols = ['time_stamp', valid_col, mode_col, sens_temp_col, power_col]
     optional_cols = ['outdoor_temp', 'solar_radiation']
     for col in optional_cols:
         if col in df.columns:
             required_df_cols.append(col)
+
     df_subset = df[required_df_cols].copy()
     merged_df = pd.merge(df_subset, thermo_subset, on='time_stamp', how='left')
+
     required_cols = [valid_col, mode_col, thermo_col, sens_temp_col, power_col, thermo_or_col]
     missing_cols = [col for col in required_cols if col not in merged_df.columns]
     if missing_cols:
@@ -136,12 +140,11 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
     merged_df['hour_cos'] = np.cos(hour_rad)
 
     target_col = f'{sens_temp_col}_future_{prediction_horizon}'
-    merged_df[target_col] = merged_df[sens_temp_col].shift(prediction_horizon)
+    merged_df[target_col] = merged_df[sens_temp_col].shift(-prediction_horizon)
 
     lag_cols = {}
 
     lag_values = [1, 5, 15]
-
     for lag in lag_values:
         if lag <= look_back:
             lag_col = f'{sens_temp_col}_lag_{lag}'
@@ -155,6 +158,7 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
     lag_col = f'{power_col}_lag_1'
     merged_df[lag_col] = merged_df[power_col].shift(1)
     lag_cols[lag_col] = True
+
     window = 15
     roll_temp = f'{sens_temp_col}_roll_{window}'
     temp_past = merged_df[sens_temp_col].shift(1)
@@ -167,37 +171,29 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
     lag_cols[roll_temp] = True
     lag_cols[roll_power] = True
 
-    # サーモ状態の変化と持続時間 - 最も重要なもののみ保持
     merged_df['thermo_change'] = merged_df[thermo_col].diff(1).fillna(0)
     reset_points = (merged_df[thermo_col] != merged_df[thermo_col].shift(1)).astype(int)
     reset_points.iloc[0] = 1
     group_id = reset_points.cumsum()
     merged_df['thermo_duration'] = merged_df.groupby(group_id).cumcount()
 
-    # 外気温特徴量 - 最も重要なもののみ保持
     if 'outdoor_temp' in merged_df.columns:
         merged_df['outdoor_temp_lag_1'] = merged_df['outdoor_temp'].shift(1)
         merged_df['temp_diff_outdoor'] = merged_df[sens_temp_col] - merged_df['outdoor_temp_lag_1']
         lag_cols['outdoor_temp_lag_1'] = True
         lag_cols['temp_diff_outdoor'] = True
 
-    # 交互作用特徴量 - 最も重要なもののみ保持
     merged_df['thermo_x_temp'] = merged_df[thermo_col] * merged_df[sens_temp_col]
+    merged_df['thermo_on_temp_change'] = merged_df[thermo_col] * merged_df[change_col]
 
-    if f'{sens_temp_col}_change_5' in merged_df.columns:
-        merged_df['thermo_on_temp_change'] = merged_df[thermo_col] * merged_df[f'{sens_temp_col}_change_5']
-    else:
-        merged_df['thermo_on_temp_change'] = 0
-
-    # 天候状態特徴量 - 条件付きで保持
     if 'outdoor_temp' in merged_df.columns and 'solar_radiation' in merged_df.columns:
         merged_df['is_sunny_day'] = ((merged_df['hour'] >= 9) &
                                     (merged_df['hour'] <= 17) &
                                     (merged_df['solar_radiation'] >
                                      merged_df['solar_radiation'].mean())).astype(int)
+
     merged_df = merged_df.dropna()
 
-    # 基本特徴量（常に含める最小限の特徴量）
     base_feature_columns = [
         'hour', 'day_of_week', 'is_weekend', 'is_night',
         'hour_sin', 'hour_cos',
@@ -207,27 +203,19 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
         'thermo_x_temp', f'{sens_temp_col}_lag_1'
     ]
 
-    # 条件付き特徴量
     conditional_features = []
     if 'is_sunny_day' in merged_df.columns:
         conditional_features.append('is_sunny_day')
 
-    # ラグ特徴量
     lag_feature_columns = [col for col in lag_cols.keys() if col in merged_df.columns]
 
-    # 全特徴量の結合
     all_feature_columns = base_feature_columns + conditional_features + lag_feature_columns
-    feature_columns = list(set(all_feature_columns))  # 重複を除去
+    feature_columns = list(set(all_feature_columns))
 
-    # 特徴量選択が有効な場合、初期モデルを訓練して重要度に基づいて特徴量を選択
     if feature_selection and len(feature_columns) > max_features:
-        import lightgbm as lgb
-        from sklearn.model_selection import train_test_split
-
         X_initial = merged_df[feature_columns]
         y_initial = merged_df[target_col]
 
-        # 簡易的なモデルを訓練して特徴量重要度を取得
         X_train, X_val, y_train, y_val = train_test_split(X_initial, y_initial, test_size=0.2, random_state=42)
         train_data = lgb.Dataset(X_train, label=y_train)
         val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
@@ -243,6 +231,7 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
             'verbosity': -1,
             'force_col_wise': True,
         }
+
         callbacks = [
             lgb.early_stopping(20),
             lgb.log_evaluation(period=100, show_stdv=False)
@@ -256,7 +245,6 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
             callbacks=callbacks
         )
 
-        # 特徴量重要度を計算
         importance = initial_model.feature_importance(importance_type='gain')
         importance_df = pd.DataFrame({
             'Feature': feature_columns,
@@ -264,29 +252,17 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
         })
         importance_df = importance_df.sort_values(by='Importance', ascending=False)
 
-        # 重要度の合計を計算
         total_importance = importance_df['Importance'].sum()
         importance_df['Importance_Ratio'] = importance_df['Importance'] / total_importance
-
-        # 累積重要度
         importance_df['Cumulative_Importance'] = importance_df['Importance_Ratio'].cumsum()
 
-        # 特徴量選択方法の改善:
-        # 1. 累積重要度が90%に達するまでの特徴量を選択（95
-        cumulative_features = importance_df[importance_df['Cumulative_Importance'] <= 0.90]['Feature'].tolist()
-
-        # 2. 重要度の閾値以上の特徴量を選択（閾値を上げて厳しく選択）
         threshold_features = importance_df[
             importance_df['Importance_Ratio'] >= importance_threshold
         ]['Feature'].tolist()
 
-        # 3. 上位max_features個の特徴量を選択
         top_features = importance_df.head(max_features)['Feature'].tolist()
-
-        # 特徴量選択基準を組み合わせる（優先順位: 閾値 > 上位N個 > 累積90%）
         selected_features = threshold_features
 
-        # 閾値ベースの選択が十分な特徴量を得られない場合、上位N個を追加
         if len(selected_features) < 5:
             remaining_needed = 5 - len(selected_features)
             for feat in top_features:
@@ -294,22 +270,11 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
                     selected_features.append(feat)
                     remaining_needed -= 1
 
-        # それでも特徴量が足りない場合、累積重要度ベースの特徴量を追加
-        if len(selected_features) < 5:
-            remaining_needed = 5 - len(selected_features)
-            for feat in cumulative_features:
-                if feat not in selected_features and remaining_needed > 0:
-                    selected_features.append(feat)
-                    remaining_needed -= 1
-
-        # 特徴量数制限
         if max_features > 0 and len(selected_features) > max_features:
-            # 上位max_features個に制限
             selected_features = importance_df[
                 importance_df['Feature'].isin(selected_features)
             ].head(max_features)['Feature'].tolist()
 
-        # 常に含める必須特徴量
         critical_features = [valid_col, mode_col, thermo_col, power_col, f'{sens_temp_col}_lag_1']
         for feat in critical_features:
             if feat in merged_df.columns and feat not in selected_features:
@@ -318,7 +283,6 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
         print(f"Zone {zone}: 特徴量数を {len(feature_columns)} から {len(selected_features)} に削減しました")
         print(f"選択された特徴量: {', '.join(selected_features)}")
 
-        # 上位5個の特徴量と重要度を表示
         top5_importance = importance_df.head(5)
         print("Top 5 特徴量重要度:")
         for i, row in top5_importance.iterrows():
@@ -329,6 +293,7 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
     target = target_col
     X = merged_df[feature_columns]
     y = merged_df[target]
+
     return X, y, merged_df
 
 def train_lgbm_model(X, y, test_size=0.2, random_state=42):
