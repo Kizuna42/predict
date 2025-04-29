@@ -43,6 +43,20 @@ setup:
 	$(VENV)/bin/pip install -r requirements.txt
 	@echo "セットアップ完了"
 
+# 日本語フォントのインストールターゲットを追加
+setup-fonts:
+	@echo "日本語フォントをインストールしています..."
+	@if [ "$(shell uname)" = "Darwin" ]; then \
+		pip install matplotlib; \
+		pip install japanize-matplotlib; \
+		echo "macOSに日本語フォントをインストールしました"; \
+	elif [ "$(shell uname)" = "Linux" ]; then \
+		sudo apt-get update && sudo apt-get install -y fonts-ipafont fonts-ipaexfont; \
+		echo "Linuxに日本語フォントをインストールしました"; \
+	else \
+		echo "Windows環境では手動でフォントをインストールしてください"; \
+	fi
+
 # 基本実行
 run:
 	@echo "温度予測分析を実行します..."
@@ -102,4 +116,4 @@ clean:
 	rm -rf $(OUTPUT_DIR)
 	@echo "削除完了"
 
-.PHONY: help setup run analyze-horizons analyze-all analyze-zone-0 custom clean
+.PHONY: help setup run analyze-horizons analyze-all analyze-zone-0 custom clean setup-fonts
