@@ -6,24 +6,15 @@ import pandas as pd
 import numpy as np
 import lightgbm as lgb
 from sklearn.model_selection import train_test_split
+from ..config import DEFAULT_CONFIG, get_zone_power_map
 
 def get_zone_power_col(zone):
     """ゾーンに対応する室外機を返す"""
-    L_zones = [0, 1, 6, 7]
-    M_zones = [2, 3, 8, 9]
-    R_zones = [4, 5, 10, 11]
+    zone_power_map = get_zone_power_map()
+    return zone_power_map.get(zone, None)
 
-    if zone in L_zones:
-        return 'L'
-    elif zone in M_zones:
-        return 'M'
-    elif zone in R_zones:
-        return 'R'
-    else:
-        return None
-
-def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction_horizon=5,
-                                feature_selection=True, importance_threshold=0.05, max_features=6):
+def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=None, prediction_horizon=5,
+                                feature_selection=None, importance_threshold=None, max_features=None):
     """
     センサー温度予測のための特徴量を作成
 
@@ -42,6 +33,16 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
         y: 目的変数
         merged_df: 結合されたデータフレーム
     """
+    # configからデフォルト値を取得
+    if look_back is None:
+        look_back = DEFAULT_CONFIG['MAX_LOOK_BACK']
+    if feature_selection is None:
+        feature_selection = DEFAULT_CONFIG['DEFAULT_FEATURE_SELECTION']
+    if importance_threshold is None:
+        importance_threshold = DEFAULT_CONFIG['DEFAULT_IMPORTANCE_THRESHOLD']
+    if max_features is None:
+        max_features = DEFAULT_CONFIG['DEFAULT_MAX_FEATURES']
+
     # 列名の設定
     valid_col = f'AC_valid_{zone}'
     mode_col = f'AC_mode_{zone}'
@@ -186,21 +187,15 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
         y_initial = merged_df[target_col]
 
         # 簡易的なモデルを訓練して特徴量重要度を取得
-        X_train, X_val, y_train, y_val = train_test_split(X_initial, y_initial, test_size=0.2, random_state=42)
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_initial, y_initial,
+            test_size=DEFAULT_CONFIG['DEFAULT_TEST_SIZE'],
+            random_state=DEFAULT_CONFIG['DEFAULT_RANDOM_STATE']
+        )
         train_data = lgb.Dataset(X_train, label=y_train)
         val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
 
-        params = {
-            'objective': 'regression',
-            'metric': 'rmse',
-            'boosting_type': 'gbdt',
-            'num_leaves': 31,
-            'learning_rate': 0.05,
-            'feature_fraction': 0.9,
-            'bagging_fraction': 0.8,
-            'verbosity': -1,
-            'force_col_wise': True,
-        }
+        params = DEFAULT_CONFIG['LGBM_PARAMS'].copy()
 
         callbacks = [
             lgb.early_stopping(20),
@@ -255,13 +250,14 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=60, prediction
                 importance_df['Feature'].isin(selected_features)
             ].head(max_features)['Feature'].tolist()
 
-        # 常に含める必須特徴量
+        # 必須特徴量を追加
         critical_features = [valid_col, mode_col, thermo_col, power_col, f'{sens_temp_col}_lag_1']
         for feat in critical_features:
             if feat in merged_df.columns and feat not in selected_features:
                 selected_features.append(feat)
 
         print(f"Zone {zone}: 特徴量数を {len(feature_columns)} から {len(selected_features)} に削減しました")
+        print(f"選択された特徴量: {', '.join(selected_features)}")
 
         # 上位5個の特徴量と重要度を表示
         top5_importance = importance_df.head(5)

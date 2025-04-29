@@ -6,8 +6,9 @@ import numpy as np
 import lightgbm as lgb
 import pandas as pd
 from sklearn.metrics import mean_squared_error, r2_score
+from ..config import DEFAULT_CONFIG
 
-def train_lgbm_model(X, y, test_size=0.2, random_state=42):
+def train_lgbm_model(X, y, test_size=None, random_state=None):
     """
     LightGBM モデルを訓練する
 
@@ -25,6 +26,12 @@ def train_lgbm_model(X, y, test_size=0.2, random_state=42):
         importance_df: 特徴量重要度のデータフレーム
     """
     try:
+        # configからデフォルト値を取得
+        if test_size is None:
+            test_size = DEFAULT_CONFIG['DEFAULT_TEST_SIZE']
+        if random_state is None:
+            random_state = DEFAULT_CONFIG['DEFAULT_RANDOM_STATE']
+
         train_size = int(len(X) * (1 - test_size))
         X_train, X_test = X.iloc[:train_size], X.iloc[train_size:]
         y_train, y_test = y.iloc[:train_size], y.iloc[train_size:]
@@ -32,30 +39,18 @@ def train_lgbm_model(X, y, test_size=0.2, random_state=42):
         train_data = lgb.Dataset(X_train, label=y_train)
         test_data = lgb.Dataset(X_test, label=y_test, reference=train_data)
 
-        params = {
-            'objective': 'regression',
-            'metric': 'rmse',
-            'boosting_type': 'gbdt',
-            'num_leaves': 31,
-            'learning_rate': 0.05,
-            'feature_fraction': 0.9,
-            'bagging_fraction': 0.8,
-            'bagging_freq': 5,
-            'verbosity': -1,
-            'lambda_l1': 0.1,
-            'lambda_l2': 0.1,
-            'force_col_wise': True,
-        }
+        # configからパラメータを取得
+        params = DEFAULT_CONFIG['LGBM_PARAMS'].copy()
 
         callbacks = [
-            lgb.early_stopping(50, verbose=False),
+            lgb.early_stopping(DEFAULT_CONFIG['LGBM_EARLY_STOPPING_ROUNDS'], verbose=False),
             lgb.log_evaluation(period=100, show_stdv=False)
         ]
 
         model = lgb.train(
             params,
             train_data,
-            num_boost_round=1000,
+            num_boost_round=DEFAULT_CONFIG['LGBM_NUM_BOOST_ROUND'],
             valid_sets=[train_data, test_data],
             callbacks=callbacks
         )

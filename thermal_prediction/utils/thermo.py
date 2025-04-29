@@ -4,28 +4,33 @@
 
 import pandas as pd
 import numpy as np
+from ..config import DEFAULT_CONFIG, get_zone_power_map
 
-def determine_thermo_status(df, deadband=1.0):
+def determine_thermo_status(df, deadband=None):
     """
     空調機のサーモ状態を判定する
 
     Args:
         df: 入力データフレーム
-        deadband: 不感帯（°C）
+        deadband: 不感帯（°C）デフォルト値はconfig.pyから読み込み
 
     Returns:
         サーモ状態を含むデータフレーム
     """
+    # 設定から不感帯の値を取得
+    if deadband is None:
+        deadband = DEFAULT_CONFIG['THERMO_DEADBAND']
+
     df = df.reset_index(drop=True)
     df['time_stamp'] = pd.to_datetime(df['time_stamp'])
     min_date = df['time_stamp'].min()
     max_date = df['time_stamp'].max()
     date_range = pd.date_range(start=min_date, end=max_date, freq='1min')
     result_df = pd.DataFrame({'time_stamp': date_range})
-    thermo_cols = [f'thermo_{zone}' for zone in range(12)]
+    thermo_cols = [f'thermo_{zone}' for zone in DEFAULT_CONFIG['ALL_ZONES']]
     result_df[thermo_cols] = 0
 
-    for zone in range(12):
+    for zone in DEFAULT_CONFIG['ALL_ZONES']:
         valid_col = f'AC_valid_{zone}'
         set_col = f'AC_set_{zone}'
         temp_col = f'AC_temp_{zone}'
@@ -80,26 +85,28 @@ def determine_thermo_status(df, deadband=1.0):
         else:
             print(f"Warning: Required columns for zone {zone} not found. Setting thermo_{zone} to 0.")
 
-    # 室外機ごとのOR演算
-    result_df['thermo_L_or'] = (
-        result_df['thermo_0'].astype(bool) |
-        result_df['thermo_1'].astype(bool) |
-        result_df['thermo_6'].astype(bool) |
-        result_df['thermo_7'].astype(bool)
-    ).astype(int)
-
-    result_df['thermo_M_or'] = (
-        result_df['thermo_2'].astype(bool) |
-        result_df['thermo_3'].astype(bool) |
-        result_df['thermo_8'].astype(bool) |
-        result_df['thermo_9'].astype(bool)
-    ).astype(int)
-
-    result_df['thermo_R_or'] = (
-        result_df['thermo_4'].astype(bool) |
-        result_df['thermo_5'].astype(bool) |
-        result_df['thermo_10'].astype(bool) |
-        result_df['thermo_11'].astype(bool)
-    ).astype(int)
+    # 室外機ごとのOR演算（configから各系統のゾーンリストを取得）
+    result_df['thermo_L_or'] = calculate_thermo_or(result_df, DEFAULT_CONFIG['L_ZONES'])
+    result_df['thermo_M_or'] = calculate_thermo_or(result_df, DEFAULT_CONFIG['M_ZONES'])
+    result_df['thermo_R_or'] = calculate_thermo_or(result_df, DEFAULT_CONFIG['R_ZONES'])
 
     return result_df
+
+
+def calculate_thermo_or(df, zones):
+    """
+    指定されたゾーンのサーモ状態のOR演算を計算する
+
+    Args:
+        df: データフレーム
+        zones: ゾーン番号のリスト
+
+    Returns:
+        OR演算結果の整数値
+    """
+    # 初期値をFalseにしてOR演算を行う
+    result = False
+    for zone in zones:
+        result = result | df[f'thermo_{zone}'].astype(bool)
+
+    return result.astype(int)
