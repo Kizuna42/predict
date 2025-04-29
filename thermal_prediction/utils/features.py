@@ -11,7 +11,8 @@ from ..config import DEFAULT_CONFIG, get_zone_power_map
 def get_zone_power_col(zone):
     """ゾーンに対応する室外機を返す"""
     zone_power_map = get_zone_power_map()
-    return zone_power_map.get(zone, None)
+    power_system = zone_power_map.get(zone, None)
+    return power_system
 
 def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=None, prediction_horizon=5,
                                 feature_selection=None, importance_threshold=None, max_features=None):
@@ -55,7 +56,9 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=None, predicti
         print(f"Zone {zone} not assigned to any outdoor unit")
         return None, None, None
 
-    thermo_or_col = f'thermo_{power_col}_or'
+    # power_colの形式を取得 (power_L, power_M, power_R)
+    power_system = power_col.split('_')[1] if '_' in power_col else power_col
+    thermo_or_col = f'thermo_{power_system}_or'
 
     # 必要な列を抽出
     required_thermo_cols = ['time_stamp', thermo_col, thermo_or_col]
@@ -281,7 +284,7 @@ def prepare_features_for_prediction_without_dropna(df, zone, power_col):
     Args:
         df: 入力データフレーム
         zone: ゾーン番号
-        power_col: 電力列名（'L', 'M', 'R'のいずれか）
+        power_col: 電力列名（'power_L', 'power_M', 'power_R'のいずれか）
 
     Returns:
         特徴量データフレーム
@@ -291,12 +294,15 @@ def prepare_features_for_prediction_without_dropna(df, zone, power_col):
         mode_col = f'AC_mode_{zone}'
         thermo_col = f'thermo_{zone}'
         sens_temp_col = f'sens_temp_{zone}'
-        thermo_or_map = {'L': 'thermo_L_or', 'M': 'thermo_M_or', 'R': 'thermo_R_or'}
 
-        if power_col not in thermo_or_map:
-            raise ValueError(f"Invalid power column: {power_col}")
+        # power_colから対応するシステム（L、M、R）を抽出
+        if '_' in power_col:
+            power_system = power_col.split('_')[1]
+        else:
+            raise ValueError(f"Invalid power column format: {power_col}. Expected format: power_X where X is L, M, or R")
 
-        thermo_or_col = thermo_or_map[power_col]
+        thermo_or_col = f'thermo_{power_system}_or'
+
         required_cols = [valid_col, mode_col, thermo_col, sens_temp_col, power_col, thermo_or_col]
         missing_cols = [col for col in required_cols if col not in df.columns]
 

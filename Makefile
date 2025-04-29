@@ -116,4 +116,21 @@ clean:
 	rm -rf $(OUTPUT_DIR)
 	@echo "削除完了"
 
-.PHONY: help setup run analyze-horizons analyze-all analyze-zone-0 custom clean setup-fonts
+# テスト実行ターゲット
+test: ## 全てのテストを実行
+	@echo "全てのテストを実行します..."
+	@python tests/run_tests.py
+
+test-features: ## 特徴量生成のテストを実行
+	@echo "特徴量生成のテストを実行します..."
+	@python tests/run_tests.py --module features
+
+test-feature-selection: ## 特徴量選択のテストを実行
+	@echo "特徴量選択のテストを実行します..."
+	@python tests/run_tests.py --module feature_selection
+
+test-models: ## モデルのテストを実行
+	@echo "モデルのテストを実行します..."
+	@python tests/run_tests.py --module lgbm
+
+.PHONY: help setup run analyze-horizons analyze-all analyze-zone-0 custom clean setup-fonts test test-features test-feature-selection test-models

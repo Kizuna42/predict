@@ -15,7 +15,14 @@ current_dir = pathlib.Path(__file__).parent
 parent_dir = current_dir.parent
 sys.path.append(str(parent_dir))
 
-from thermal_prediction.utils import determine_thermo_status, prepare_features_for_sens_temp, get_zone_power_col
+from thermal_prediction.utils import (
+    determine_thermo_status,
+    prepare_features_for_sens_temp,
+    get_zone_power_col,
+    select_features_with_multiple_methods,
+    evaluate_feature_sets,
+    visualize_feature_evaluation
+)
 from thermal_prediction.models import train_lgbm_model
 from thermal_prediction.visualization import (
     visualize_horizon_metrics,
@@ -67,7 +74,8 @@ def evaluate_prediction_horizons(df, thermo_df, zone, horizons=[5, 10, 15, 20, 3
         'predictions': {},
         'actual': {},
         'timestamps': {},
-        'features_df': {}
+        'features_df': {},
+        'feature_importance_dfs': {},
     }
 
     # 各予測ホライゾンでモデルを訓練・評価
@@ -75,13 +83,54 @@ def evaluate_prediction_horizons(df, thermo_df, zone, horizons=[5, 10, 15, 20, 3
         print(f"\nゾーン {zone} の予測ホライゾン {horizon} 分のモデル評価を開始")
 
         print(f"特徴量を作成中 (予測ホライゾン: {horizon}分)...")
-        X, y, features_df = prepare_features_for_sens_temp(df, thermo_df, zone, prediction_horizon=horizon)
+        X, y, features_df = prepare_features_for_sens_temp(df, thermo_df, zone, prediction_horizon=horizon, feature_selection=False)
         if X is None or y is None or features_df is None:
             print(f"ゾーン {zone} の特徴量を作成できませんでした")
             continue
 
-        print(f"モデルをトレーニングしています...")
-        model, X_test, y_test, y_pred, importance_df = train_lgbm_model(X, y)
+        # 特徴量選択の出力ディレクトリを作成
+        feature_selection_dir = os.path.join(output_dir, f'feature_selection/zone_{zone}/horizon_{horizon}')
+        os.makedirs(feature_selection_dir, exist_ok=True)
+
+        # 複数の特徴量選択手法を適用
+        print(f"複数の特徴量選択手法を実行中...")
+        selected_features_dict, feature_importance_df = select_features_with_multiple_methods(
+            X, y,
+            output_dir=feature_selection_dir,
+            zone=zone,
+            prediction_horizon=horizon
+        )
+
+        # 各特徴量セットの評価
+        print(f"各特徴量セットを評価中...")
+        evaluation_results = evaluate_feature_sets(X, y, selected_features_dict)
+
+        # 評価結果の可視化
+        evaluation_path = visualize_feature_evaluation(
+            evaluation_results,
+            output_dir=feature_selection_dir,
+            zone=zone,
+            prediction_horizon=horizon
+        )
+        print(f"特徴量評価結果を保存しました: {evaluation_path}")
+
+        # 最良の特徴量セットを選択
+        best_method = evaluation_results.loc[evaluation_results['RMSE'].idxmin()]['Method']
+        if best_method == 'All Features':
+            print(f"全ての特徴量を使用します（最良の選択）")
+            selected_features = X.columns.tolist()
+        elif best_method == 'Common Features':
+            print(f"すべての手法で共通して選択された特徴量を使用します（最良の選択）")
+            common_features = set.intersection(*map(set, selected_features_dict.values()))
+            selected_features = list(common_features)
+        else:
+            print(f"{best_method}で選択された特徴量を使用します（最良の選択）")
+            selected_features = selected_features_dict[best_method]
+
+        # 選択された特徴量を使用してモデルを学習
+        X_selected = X[selected_features]
+        print(f"選択された特徴量（{len(selected_features)}個）でモデルをトレーニングしています...")
+        model, X_test, y_test, y_pred, importance_df = train_lgbm_model(X_selected, y)
         if model is None:
             print(f"モデルのトレーニングに失敗しました")
             continue
@@ -102,6 +151,7 @@ def evaluate_prediction_horizons(df, thermo_df, zone, horizons=[5, 10, 15, 20, 3
         results['mae'].append(mae)
         results['r2'].append(r2)
         results['top_features'].append(top_features)
+        results['feature_importance_dfs'][horizon] = feature_importance_df
 
         # テストデータの最後の部分を保存（可視化用）
         sample_size = min(1000, len(y_test))
