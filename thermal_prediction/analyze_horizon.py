@@ -9,10 +9,15 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, r2_score
+import sys
+import pathlib
+current_dir = pathlib.Path(__file__).parent
+parent_dir = current_dir.parent
+sys.path.append(str(parent_dir))
 
-from .utils import determine_thermo_status, prepare_features_for_sens_temp, get_zone_power_col
-from .models import train_lgbm_model
-from .visualization import (
+from thermal_prediction.utils import determine_thermo_status, prepare_features_for_sens_temp, get_zone_power_col
+from thermal_prediction.models import train_lgbm_model
+from thermal_prediction.visualization import (
     visualize_horizon_metrics,
     visualize_horizon_scatter,
     visualize_horizon_timeseries,

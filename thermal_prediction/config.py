@@ -54,6 +54,11 @@ DEFAULT_CONFIG = {
     'FIGURE_DPI': 100,
     'FIGURE_SIZE': (12, 8),
     'COLOR_PALETTE': 'viridis',
+
+    # 実行設定
+    'RUN_ANALYZE_HORIZONS': True,  # 予測ホライゾン分析を実行するかどうか
+    'ZONES_TO_ANALYZE': 'all',     # 分析するゾーン（'all'または数値のリスト例：[0,1,2]）
+    'HORIZONS_TO_ANALYZE': [5, 10, 15, 20, 30]  # 分析するホライゾン
 }
 
 
