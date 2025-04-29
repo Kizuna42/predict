@@ -51,14 +51,22 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=None, predicti
     sens_temp_col = f'sens_temp_{zone}'
 
     # ゾーンに対応する室外機を特定
-    power_col = get_zone_power_col(zone)
-    if power_col is None:
+    power_system = get_zone_power_col(zone)
+    if power_system is None:
         print(f"Zone {zone} not assigned to any outdoor unit")
         return None, None, None
 
-    # power_colの形式を取得 (power_L, power_M, power_R)
-    power_system = power_col.split('_')[1] if '_' in power_col else power_col
-    thermo_or_col = f'thermo_{power_system}_or'
+    # 電力カラム名を生成
+    if power_system.startswith('power_'):
+        power_col = power_system
+        # 'power_' を除去してシステム名を取得
+        system_name = power_system.split('_')[1]
+    else:
+        power_col = f'power_{power_system}'
+        system_name = power_system
+
+    # thermo_or_colのためのシステム名
+    thermo_or_col = f'thermo_{system_name}_or'
 
     # 必要な列を抽出
     required_thermo_cols = ['time_stamp', thermo_col, thermo_or_col]
@@ -297,11 +305,13 @@ def prepare_features_for_prediction_without_dropna(df, zone, power_col):
 
         # power_colから対応するシステム（L、M、R）を抽出
         if '_' in power_col:
-            power_system = power_col.split('_')[1]
+            system_name = power_col.split('_')[1]
         else:
-            raise ValueError(f"Invalid power column format: {power_col}. Expected format: power_X where X is L, M, or R")
+            # 'power_'プレフィックスがない場合はそのまま使用
+            system_name = power_col
+            power_col = f'power_{power_col}'
 
-        thermo_or_col = f'thermo_{power_system}_or'
+        thermo_or_col = f'thermo_{system_name}_or'
 
         required_cols = [valid_col, mode_col, thermo_col, sens_temp_col, power_col, thermo_or_col]
         missing_cols = [col for col in required_cols if col not in df.columns]
@@ -389,9 +399,9 @@ def prepare_features_for_prediction_without_dropna(df, zone, power_col):
         # 気象条件の特徴量
         if 'outdoor_temp' in features_df.columns and 'solar_radiation' in features_df.columns:
             features_df['is_sunny_day'] = ((features_df['hour'] >= 9) &
-                                         (features_df['hour'] <= 17) &
-                                         (features_df['solar_radiation'] >
-                                          features_df['solar_radiation'].mean())).astype(int)
+                                        (features_df['hour'] <= 17) &
+                                        (features_df['solar_radiation'] >
+                                        features_df['solar_radiation'].mean())).astype(int)
             feature_columns.append('is_sunny_day')
 
         available_columns = [col for col in feature_columns if col in features_df.columns]
