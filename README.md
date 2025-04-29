@@ -1,255 +1,181 @@
-# 温度予測モジュール
+# 温度予測システム
 
-空調システムの温度予測を行うための Python モジュールです。様々な予測ホライゾン（5 分後、10 分後など）での温度変化を機械学習で予測し、分析結果を可視化します。
+## 概要
 
-## 目次
+このプロジェクトは、空調システムの各ゾーンの温度を予測するための機械学習モデルを提供します。予測結果の可視化機能も含まれています。
 
-- [機能概要](#機能概要)
-- [クイックスタート](#クイックスタート)
-- [インストール方法](#インストール方法)
-- [使用方法](#使用方法)
-  - [Makefile による実行](#makefileによる実行)
-  - [コマンドライン実行](#コマンドライン実行)
-  - [Python からの利用](#pythonからの利用)
-- [設定方法](#設定方法)
-- [モジュール構成](#モジュール構成)
-- [主要機能の説明](#主要機能の説明)
-- [分析結果の見方](#分析結果の見方)
-- [特徴量一覧](#特徴量一覧)
-- [必要システム要件](#必要システム要件)
+## 機能
 
-## 機能概要
+- 特徴量生成と前処理
+- LightGBM を使用した温度予測モデル
+- 異なる予測ホライゾン（5 分後、10 分後、15 分後など）での評価
+- 静的およびインタラクティブな可視化機能
+- 全ゾーンの温度予測結果の可視化
 
-- **予測ホライゾン分析**: 異なる時間先（5 分、10 分、15 分、20 分、30 分など）の温度を予測し、精度を評価
-- **ゾーン別分析**: 建物内の複数ゾーン（最大 12 ゾーン）について個別に予測モデルを構築
-- **特徴量選択**: 温度予測に効果的な特徴量を自動選択
-- **モデル評価**: RMSE、MAE、R² などの指標による予測精度評価
-- **可視化機能**: 予測結果の散布図、時系列グラフ、特徴量重要度などを自動生成
-
-## クイックスタート
+## 必要なパッケージ
 
 ```bash
-# 1. セットアップ
-make setup
-
-# 2. すべてのゾーンで予測ホライゾン分析を実行
-make analyze-all
-
-# 3. 結果を確認
-# 出力ディレクトリ（デフォルト: ./output）に結果が保存されます
-```
-
-## インストール方法
-
-### 依存パッケージのインストール
-
-```bash
-# Makefileを使用する場合
-make setup
-
-# または手動でインストール
-python -m venv venv
-source venv/bin/activate  # Windowsの場合: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### 開発モードでのインストール
-
-```bash
-pip install -e .
+pip install pandas numpy scikit-learn lightgbm matplotlib plotly japanize-matplotlib kaleido nbformat
 ```
 
 ## 使用方法
 
-### Makefile による実行
+### 1. 全ゾーンの温度予測可視化
 
-最も簡単な実行方法は、同梱の Makefile を使用することです。
-
-```bash
-# ヘルプを表示
-make help
-
-# 基本コマンド
-make run              # config.pyの設定に基づいて実行
-make analyze-horizons # 予測ホライゾン分析を実行
-make analyze-all      # すべてのゾーンで分析
-make analyze-zone-0   # ゾーン0のみを分析
-
-# カスタム設定での実行
-make custom ZONES=0,1,2 HORIZONS=5,10,15
-```
-
-### コマンドライン実行
-
-コマンドライン引数を直接指定することもできます。
+全ゾーンの温度予測結果を一度に表示するには、`analyze_horizon.py`を実行します。
 
 ```bash
-# 基本実行形式
-python thermal_prediction/main.py --analyze_horizons --file_path ./AllDayData.csv --output_dir ./output
-
-# 特定のゾーンと予測ホライゾンを指定
-python thermal_prediction/main.py --analyze_horizons --zones 0,1,2 --horizons 5,10,15,20
-
-# 分析期間を指定
-python thermal_prediction/main.py --analyze_horizons --start_date 2024-07-01 --end_date 2024-08-31
+python thermal_prediction/analyze_horizon.py --file_path AllDayData.csv --output_dir ./output/horizon_analysis --zones all --horizons 5,10,15,20,30
 ```
 
-### Python からの利用
-
-このモジュールは他の Python プログラムから直接インポートして利用できます。
+または、Python スクリプトから呼び出す場合：
 
 ```python
-from thermal_prediction.utils import determine_thermo_status, prepare_features_for_sens_temp
-from thermal_prediction.models import train_lgbm_model
-import pandas as pd
+from thermal_prediction.analyze_horizon import analyze_prediction_horizons
 
-# データを読み込み
-df = pd.read_csv('AllDayData.csv')
-df['time_stamp'] = pd.to_datetime(df['time_stamp'])
-
-# サーモ状態を計算
-thermo_df = determine_thermo_status(df)
-
-# 特定のゾーンの特徴量を作成（5分後を予測）
-zone = 0
-X, y, features_df = prepare_features_for_sens_temp(df, thermo_df, zone, prediction_horizon=5)
-
-# モデルを訓練・評価
-model, X_test, y_test, y_pred, importance_df = train_lgbm_model(X, y)
-
-# 上位特徴量を確認
-print(f"Top 5 特徴量: {', '.join(importance_df.head(5)['Feature'].tolist())}")
+# 全ゾーンの5分後、10分後、15分後予測を分析
+results = analyze_prediction_horizons(
+    file_path='AllDayData.csv',
+    output_dir='./output/horizon_analysis',
+    zones='all',
+    horizons=[5, 10, 15]
+)
 ```
 
-## 設定方法
+### 2. Makefile を使った簡単な実行方法
 
-設定は以下の方法で行えます：
+プロジェクトには Makefile が用意されており、簡単なコマンドで分析と可視化を実行できます。
 
-1. **config.py**: 基本設定を一元管理
-2. **コマンドライン引数**: 実行時に特定の設定を上書き
-3. **Makefile 変数**: Make 実行時に環境変数として設定
+```bash
+# セットアップ
+make setup            # 必要なパッケージをインストール
+make setup-interactive # インタラクティブ可視化用パッケージをインストール
 
-### 主な設定項目
+# 分析実行
+make analyze-all      # すべてのゾーンの分析を実行
+make analyze-horizons # 予測ホライゾン分析を実行
+make analyze-zone-0   # ゾーン0のみの分析を実行
 
-| 設定項目                    | 説明                 | デフォルト値                   |
-| --------------------------- | -------------------- | ------------------------------ |
-| DEFAULT_FILE_PATH           | 入力データファイル   | ./AllDayData.csv               |
-| DEFAULT_OUTPUT_DIR          | 出力ディレクトリ     | ./output/sens_temp_predictions |
-| DEFAULT_START_DATE          | 分析開始日           | 2024-06-26                     |
-| DEFAULT_END_DATE            | 分析終了日           | 2024-09-20                     |
-| DEFAULT_PREDICTION_HORIZONS | 予測ホライゾン（分） | [5, 10, 15, 20, 30]            |
-| ALL_ZONES                   | 全ゾーン番号         | 0〜11                          |
-| THERMO_DEADBAND             | サーモ状態不感帯     | 1.0°C                          |
+# カスタム分析
+make custom ZONES=0,1,2 HORIZONS=5,10,15  # 特定のゾーンとホライゾンで分析
 
-## モジュール構成
+# インタラクティブ可視化
+make show-all-zones            # 全ゾーンの予測結果を表示（15分後がデフォルト）
+make show-all-zones HORIZON=30 # 30分後の予測結果を表示
+make show-zone ZONE=1          # ゾーン1の詳細結果を表示
+```
+
+コマンドの使い方を確認するには：
+
+```bash
+make help  # 利用可能なコマンドの一覧と説明を表示
+```
+
+### 3. インタラクティブ可視化の直接実行
+
+インタラクティブな可視化機能を直接実行することもできます：
+
+```bash
+python thermal_prediction/visualize.py --zones 0,1,2 --horizon 15 --open
+```
+
+引数の説明：
+
+- `--zones`: 表示するゾーン番号（カンマ区切り、または「all」）
+- `--horizon`: 表示する予測ホライゾン（分）
+- `--output_dir`: 結果出力ディレクトリ
+- `--open`: 生成した HTML ファイルを自動的に開く
+
+### 4. インタラクティブ可視化の仕組み
+
+インタラクティブな可視化機能は以下のファイルに実装されています：
+
+- `thermal_prediction/visualization/interactive.py`
+
+このモジュールには以下の関数が含まれています：
+
+- `interactive_horizon_metrics`: 各予測ホライゾンごとの評価指標を可視化
+- `interactive_horizon_scatter`: 予測値と実測値の散布図を表示
+- `interactive_timeseries`: 単一ホライゾンの時系列予測を可視化
+- `interactive_all_horizons_timeseries`: 全予測ホライゾンの時系列を一つのグラフで可視化
+- `interactive_feature_ranks`: 特徴量重要度の順位を可視化
+- `interactive_all_zones_timeseries`: 全ゾーンの温度予測結果を一度に可視化
+
+### 5. 全ゾーン可視化の使用例
+
+以下のコードは、全ゾーンの温度予測結果を可視化する方法を示しています：
+
+```python
+from thermal_prediction.visualization.interactive import interactive_all_zones_timeseries
+
+# 全ゾーンの15分後予測を可視化
+graph_paths = interactive_all_zones_timeseries(
+    results=prediction_results,  # ゾーン番号をキーとする辞書
+    horizon=15,                 # 予測ホライゾン（分）
+    zones=[0, 1, 2, 3, 4, 5],   # 表示するゾーン
+    output_dir='./output/all_zones' # 出力ディレクトリ
+)
+
+# 結果のHTMLファイルパスが返される
+print(f"全ゾーン可視化グラフが保存されました: {graph_paths[0]}")
+```
+
+`prediction_results`は以下の形式の辞書である必要があります：
+
+```
+{
+    '0': DataFrame(columns=['actual', 'pred_15', ...]),
+    '1': DataFrame(columns=['actual', 'pred_15', ...]),
+    '2': DataFrame(columns=['actual', 'pred_15', ...]),
+    ...
+}
+```
+
+各 DataFrame のインデックスは時間を表します。
+
+## プロジェクト構造
 
 ```
 thermal_prediction/
-├── __init__.py           # パッケージの初期化ファイル
-├── main.py               # メインエントリーポイント
-├── analyze_horizon.py    # 予測ホライズン分析モジュール
-├── config.py             # 設定パラメータの一元管理
-├── utils/                # ユーティリティ機能
-│   ├── __init__.py       # ユーティリティのエクスポート定義
-│   ├── features.py       # 特徴量生成関連の機能
-│   └── thermo.py         # サーモ状態関連の機能
-├── models/               # モデル定義・学習
-│   ├── __init__.py       # モデルのエクスポート定義
-│   └── lgbm.py           # LightGBMモデル実装
-└── visualization/        # 可視化機能
-    ├── __init__.py       # 可視化機能のエクスポート定義
-    ├── horizon.py        # 予測ホライズン関連の可視化
-    ├── predictions.py    # 予測結果の可視化
-    └── feature_importance.py # 特徴量重要度の可視化
+├── __init__.py
+├── analyze_horizon.py    # 予測ホライゾン分析
+├── config.py             # 設定値
+├── main.py               # メインエントリポイント
+├── visualize.py          # インタラクティブ可視化スクリプト
+├── models/               # モデル関連
+├── utils/                # ユーティリティ関数
+│   ├── __init__.py
+│   └── features.py       # 特徴量生成
+└── visualization/        # 可視化関連
+    ├── __init__.py
+    ├── feature_importance.py
+    ├── horizon.py
+    ├── interactive.py    # インタラクティブ可視化
+    └── predictions.py
 ```
 
+## 実装の詳細
 
-## 主要機能の説明
+`interactive_all_zones_timeseries`関数は、全ゾーンの温度予測結果をサブプロットとして表示します。各ゾーンのグラフには予測値と実測値が含まれており、グラフは HTML 形式（インタラクティブ）と PNG 形式（静的）の両方で保存されます。
 
-### 1. 予測ホライゾン分析 (`analyze_horizon.py`)
+引数の詳細：
 
-異なる時間先の温度を予測して精度を比較します。例えば、5分後、10分後、15分後...の温度予測を行い、予測精度の変化を評価します。
+- `results`: ゾーン番号をキーとする辞書。各ゾーンの DataFrame には'actual'（実測値）と'pred\_{horizon}'（予測値）の列が必要。
+- `horizon`: 予測ホライゾン（分）
+- `zones`: 表示するゾーン番号のリスト
+- `output_dir`: 出力ディレクトリ
 
-```bash
-# 実行例（Makefile）
-make analyze-horizons
+この関数はサブプロットを作成し、各ゾーンの予測結果をプロットします。結果は HTML 形式で保存され、インタラクティブにデータを調査することができます。また、静的な PNG 画像も生成されます。
 
-# または直接実行
-python thermal_prediction/main.py --analyze_horizons
-```
+## 依存関係
 
-**出力**:
-- 各ホライゾンごとのRMSE、MAE、R²のグラフ
-- 予測値と実測値の散布図
-- 時系列での予測と実測の比較グラフ
-- 各ホライゾンでの重要特徴量ランキング
-
-### 2. 特徴量生成 (`utils/features.py`)
-
-温度予測のために様々な特徴量を生成します：
-
-- 時間関連特徴量（時刻、曜日、周期変換）
-- 温度履歴特徴量（過去の温度値、変化率）
-- 電力消費特徴量（室外機電力消費）
-- サーモ状態特徴量（サーモ状態と持続時間）
-- 外部環境特徴量（外気温、日射量）
-
-### 3. サーモ状態計算 (`utils/thermo.py`)
-
-空調機のサーモスタット状態（ON/OFF）を推定します。室温と設定温度の関係から、冷房/暖房モードごとにサーモ状態を判定します。
-
-### 4. モデルトレーニング (`models/lgbm.py`)
-
-LightGBMを使用した回帰モデルを訓練します。特徴量選択、交差検証、早期停止などの機能を備えています。
-
-## 分析結果の見方
-
-分析結果は出力ディレクトリに以下のように保存されます：
-
-
-
-主要な評価指標：
-- **RMSE (Root Mean Squared Error)**: 予測誤差の二乗平均の平方根
-- **MAE (Mean Absolute Error)**: 予測誤差の絶対値平均
-- **R² (決定係数)**: モデルの説明力（1に近いほど良い）
-
-## 特徴量一覧
-
-このモジュールで使用される主な特徴量：
-
-1. **基本時間特徴量**
-   - 時刻（hour）、曜日（day_of_week）
-   - 周期変換した時刻（hour_sin, hour_cos）
-   - 週末フラグ（is_weekend）
-   - 夜間フラグ（is_night）
-
-2. **温度関連特徴量**
-   - 過去の温度値（sens_temp_lag_1, sens_temp_lag_5, ...）
-   - 温度変化率（sens_temp_change_5）
-   - 移動平均温度（sens_temp_roll_15）
-
-3. **サーモ状態特徴量**
-   - サーモ状態（thermo_X）
-   - サーモ状態変化（thermo_change）
-   - サーモ状態持続時間（thermo_duration）
-
-4. **電力消費特徴量**
-   - 室外機電力消費値（power_L, power_M, power_R）
-   - 過去の電力消費値（power_X_lag_1）
-   - 電力消費移動平均（power_X_roll_15）
-
-5. **外部環境特徴量**
-   - 外気温（outdoor_temp）
-   - 室内外温度差（temp_diff_outdoor）
-   - 日射量関連特徴量（is_sunny_day）
-
-## 必要システム要件
-
-- Python 3.7以上
-- 主要パッケージ:
-  - pandas
-  - numpy
-  - scikit-learn
-  - LightGBM
-  - matplotlib
-  - seaborn
+- Python 3.6+
+- pandas
+- numpy
+- scikit-learn
+- lightgbm
+- matplotlib
+- plotly
+- japanize-matplotlib（日本語表示用）
+- kaleido（静的画像出力用）
+- nbformat（HTML 出力用）

@@ -39,3 +39,17 @@ from .horizon import (
     visualize_feature_ranks,
     visualize_zones_comparison
 )
+
+# インタラクティブな可視化関数
+try:
+    from .interactive import (
+        interactive_horizon_metrics,
+        interactive_horizon_scatter,
+        interactive_timeseries,
+        interactive_feature_importance,
+        interactive_all_horizons_timeseries,
+        interactive_feature_ranks
+    )
+except ImportError:
+    print("インタラクティブな可視化機能を使用するには plotly パッケージが必要です。")
+    print("インストール方法: pip install plotly nbformat kaleido")

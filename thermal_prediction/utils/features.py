@@ -9,10 +9,22 @@ from sklearn.model_selection import train_test_split
 from ..config import DEFAULT_CONFIG, get_zone_power_map
 
 def get_zone_power_col(zone):
-    """ゾーンに対応する室外機を返す"""
-    zone_power_map = get_zone_power_map()
-    power_system = zone_power_map.get(zone, None)
-    return power_system
+    """
+    ゾーン番号から対応する室外機の電力列名を返す
+
+    Args:
+        zone: ゾーン番号 (0-11)
+
+    Returns:
+        power_col: 対応する電力列名（'L', 'M', 'R'のいずれか）
+    """
+    if zone in DEFAULT_CONFIG['L_ZONES']:
+        return 'L'  # 'power_L' から 'L' に変更
+    elif zone in DEFAULT_CONFIG['M_ZONES']:
+        return 'M'  # 'power_M' から 'M' に変更
+    elif zone in DEFAULT_CONFIG['R_ZONES']:
+        return 'R'  # 'power_R' から 'R' に変更
+    return None
 
 def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=None, prediction_horizon=5,
                                 feature_selection=None, importance_threshold=None, max_features=None):
@@ -57,13 +69,8 @@ def prepare_features_for_sens_temp(df, thermo_df, zone, look_back=None, predicti
         return None, None, None
 
     # 電力カラム名を生成
-    if power_system.startswith('power_'):
-        power_col = power_system
-        # 'power_' を除去してシステム名を取得
-        system_name = power_system.split('_')[1]
-    else:
-        power_col = f'power_{power_system}'
-        system_name = power_system
+    power_col = power_system  # 修正: もうすでに正しいカラム名（L, M, R）になっているので変換不要
+    system_name = power_system  # 修正: システム名はそのまま使用
 
     # thermo_or_colのためのシステム名
     thermo_or_col = f'thermo_{system_name}_or'
@@ -292,7 +299,7 @@ def prepare_features_for_prediction_without_dropna(df, zone, power_col):
     Args:
         df: 入力データフレーム
         zone: ゾーン番号
-        power_col: 電力列名（'power_L', 'power_M', 'power_R'のいずれか）
+        power_col: 電力列名（'L', 'M', 'R'のいずれか）
 
     Returns:
         特徴量データフレーム
@@ -303,13 +310,8 @@ def prepare_features_for_prediction_without_dropna(df, zone, power_col):
         thermo_col = f'thermo_{zone}'
         sens_temp_col = f'sens_temp_{zone}'
 
-        # power_colから対応するシステム（L、M、R）を抽出
-        if '_' in power_col:
-            system_name = power_col.split('_')[1]
-        else:
-            # 'power_'プレフィックスがない場合はそのまま使用
-            system_name = power_col
-            power_col = f'power_{power_col}'
+        # システム名はそのまま使用（L、M、R）
+        system_name = power_col
 
         thermo_or_col = f'thermo_{system_name}_or'
 

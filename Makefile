@@ -7,6 +7,7 @@ START_DATE := 2024-06-26
 END_DATE := 2024-09-20
 ZONES := all
 HORIZONS := 5,10,15,20,30
+HORIZON := 15
 
 # Python仮想環境のパス
 VENV := venv
@@ -25,6 +26,10 @@ help:
 	@echo "  make analyze-all      - すべてのゾーンで分析を実行"
 	@echo "  make analyze-zone-0   - ゾーン0のみで分析を実行"
 	@echo ""
+	@echo "可視化コマンド:"
+	@echo "  make show-all-zones   - 全ゾーンの予測結果を表示（インタラクティブ）"
+	@echo "  make show-zone ZONE=1 - 特定ゾーンの詳細結果を表示（インタラクティブ）"
+	@echo ""
 	@echo "カスタム分析:"
 	@echo "  make custom ZONES=0,1,2 HORIZONS=5,10,15 - カスタム設定で分析"
 	@echo ""
@@ -35,6 +40,8 @@ help:
 	@echo "  END_DATE   - 分析終了日 (デフォルト: $(END_DATE))"
 	@echo "  ZONES      - 分析対象ゾーン (デフォルト: $(ZONES))"
 	@echo "  HORIZONS   - 予測ホライゾン (デフォルト: $(HORIZONS))"
+	@echo "  HORIZON    - 単一予測ホライゾン (デフォルト: $(HORIZON)分)"
+	@echo "  ZONE       - 表示するゾーン (デフォルト: なし)"
 
 # 初期セットアップ
 setup:
@@ -56,6 +63,12 @@ setup-fonts:
 	else \
 		echo "Windows環境では手動でフォントをインストールしてください"; \
 	fi
+
+# インタラクティブな可視化に必要なパッケージのインストール
+setup-interactive:
+	@echo "インタラクティブ可視化用パッケージをインストールしています..."
+	pip install plotly kaleido nbformat
+	@echo "インストール完了"
 
 # 基本実行
 run:
@@ -110,6 +123,32 @@ custom:
 		--start_date $(START_DATE) \
 		--end_date $(END_DATE)
 
+# インタラクティブな可視化を直接実行するコマンド
+visualize:
+	@echo "インタラクティブな可視化を実行します..."
+	python thermal_prediction/visualize.py \
+		--output_dir $(OUTPUT_DIR) \
+		--zones $(ZONES) \
+		--horizon $(HORIZON)
+
+# 全ゾーンの予測結果を表示（インタラクティブ）
+show-all-zones:
+	@echo "全ゾーンの予測結果のインタラクティブ表示を開きます..."
+	@if [ -f $(OUTPUT_DIR)/horizon_analysis/interactive/all_zones_horizon_$(HORIZON)_interactive.html ]; then \
+		open $(OUTPUT_DIR)/horizon_analysis/interactive/all_zones_horizon_$(HORIZON)_interactive.html; \
+	else \
+		echo "ファイルが見つかりません。まず分析を実行してください: make analyze-all"; \
+	fi
+
+# 特定ゾーンの詳細結果を表示（インタラクティブ）
+show-zone:
+	@echo "ゾーン $(ZONE) の詳細予測結果のインタラクティブ表示を開きます..."
+	@if [ -f $(OUTPUT_DIR)/horizon_analysis/interactive/zone_$(ZONE)_interactive_index.html ]; then \
+		open $(OUTPUT_DIR)/horizon_analysis/interactive/zone_$(ZONE)_interactive_index.html; \
+	else \
+		echo "ファイルが見つかりません。まず分析を実行してください: make analyze-horizons ZONES=$(ZONE)"; \
+	fi
+
 # 出力ディレクトリをクリーン
 clean:
 	@echo "出力ディレクトリを削除しています..."
@@ -133,4 +172,4 @@ test-models: ## モデルのテストを実行
 	@echo "モデルのテストを実行します..."
 	@python tests/run_tests.py --module lgbm
 
-.PHONY: help setup run analyze-horizons analyze-all analyze-zone-0 custom clean setup-fonts test test-features test-feature-selection test-models
+.PHONY: help setup run analyze-horizons analyze-all analyze-zone-0 custom clean setup-fonts test test-features test-feature-selection test-models setup-interactive visualize show-all-zones show-zone

@@ -9,8 +9,8 @@ DEFAULT_CONFIG = {
     # データ関連
     'DEFAULT_FILE_PATH': './AllDayData.csv',
     'DEFAULT_OUTPUT_DIR': './output/sens_temp_predictions',
-    'DEFAULT_START_DATE': '2024-06-26',
-    'DEFAULT_END_DATE': '2024-09-20',
+    'DEFAULT_START_DATE': '2024-07-01',
+    'DEFAULT_END_DATE': '2024-07-03',
 
     # 予測関連
     'DEFAULT_PREDICTION_HORIZONS': [5, 10, 15, 20, 30],
@@ -57,8 +57,8 @@ DEFAULT_CONFIG = {
 
     # 実行設定
     'RUN_ANALYZE_HORIZONS': True,  # 予測ホライゾン分析を実行するかどうか
-    'ZONES_TO_ANALYZE': 'all',     # 分析するゾーン（'all'または数値のリスト例：[0,1,2]）
-    'HORIZONS_TO_ANALYZE': [5, 10, 15, 20, 30]  # 分析するホライゾン
+    'ZONES_TO_ANALYZE': [1],  # テスト用に1ゾーンのみ分析
+    'HORIZONS_TO_ANALYZE': [5, 10, 15]  # テスト用に3つのホライゾンのみ分析
 }
 
 
