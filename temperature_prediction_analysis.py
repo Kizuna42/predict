@@ -133,6 +133,17 @@ def create_future_targets(df, zone_nums, horizons_minutes=[5, 10, 15, 20, 30]):
 existing_zones = sorted([int(col.split('_')[2]) for col in temp_cols])
 print(f"検出されたゾーン: {existing_zones}")
 
+# LMRのゾーン区分を定義
+L_ZONES = [0, 1, 6, 7]
+M_ZONES = [2, 3, 8, 9]
+R_ZONES = [4, 5, 10, 11]
+
+# 各ゾーンがどの系統に属するかを表示
+print("ゾーン区分:")
+print(f"L系統ゾーン: {[z for z in L_ZONES if z in existing_zones]}")
+print(f"M系統ゾーン: {[z for z in M_ZONES if z in existing_zones]}")
+print(f"R系統ゾーン: {[z for z in R_ZONES if z in existing_zones]}")
+
 # 目的変数の作成
 df_with_targets = create_future_targets(df, existing_zones)
 print(f"目的変数を追加したデータシェイプ: {df_with_targets.shape}")
@@ -174,6 +185,27 @@ feature_cols.extend(['hour', 'day_of_week', 'is_weekend'])
 # 重複する特徴量を削除
 feature_cols = list(dict.fromkeys(feature_cols))
 
+# LMR系統とゾーンの関係を示す特徴量を追加
+df_with_targets['is_L_zone'] = 0
+df_with_targets['is_M_zone'] = 0
+df_with_targets['is_R_zone'] = 0
+
+# 各ゾーンに対応するLMR系統フラグを設定
+for zone in existing_zones:
+    if zone in L_ZONES:
+        # そのゾーンのセンサー値が存在する行のみフラグを立てる
+        mask = df_with_targets[f'sens_temp_{zone}'].notna()
+        df_with_targets.loc[mask, 'is_L_zone'] = 1
+    elif zone in M_ZONES:
+        mask = df_with_targets[f'sens_temp_{zone}'].notna()
+        df_with_targets.loc[mask, 'is_M_zone'] = 1
+    elif zone in R_ZONES:
+        mask = df_with_targets[f'sens_temp_{zone}'].notna()
+        df_with_targets.loc[mask, 'is_R_zone'] = 1
+
+# LMR系統フラグを特徴量に追加
+feature_cols.extend(['is_L_zone', 'is_M_zone', 'is_R_zone'])
+
 # 多項式特徴量の作成（次数2）
 print("多項式特徴量を作成中...")
 key_features = []
@@ -182,6 +214,22 @@ for zone in existing_zones:
         key_features.extend([f'sens_temp_{zone}', f'AC_set_{zone}'])
     if 'atmospheric　temperature' in df.columns:
         key_features.append('atmospheric　temperature')
+
+# L, M, R特徴量と対応するゾーンの温度間の交互作用を追加
+if 'L' in df.columns:
+    for zone in [z for z in L_ZONES if z in existing_zones]:
+        if f'sens_temp_{zone}' in df.columns:
+            key_features.append('L')
+
+if 'M' in df.columns:
+    for zone in [z for z in M_ZONES if z in existing_zones]:
+        if f'sens_temp_{zone}' in df.columns:
+            key_features.append('M')
+
+if 'R' in df.columns:
+    for zone in [z for z in R_ZONES if z in existing_zones]:
+        if f'sens_temp_{zone}' in df.columns:
+            key_features.append('R')
 
 # 重複を削除
 key_features = list(dict.fromkeys(key_features))
@@ -213,6 +261,18 @@ lag_dependency = {}
 for zone_to_predict in existing_zones:
     zone_results = {}
 
+    # このゾーンに対応するLMR系統を特定
+    if zone_to_predict in L_ZONES:
+        zone_system = 'L'
+    elif zone_to_predict in M_ZONES:
+        zone_system = 'M'
+    elif zone_to_predict in R_ZONES:
+        zone_system = 'R'
+    else:
+        zone_system = 'Unknown'
+
+    print(f"\nゾーン{zone_to_predict}({zone_system}系統)のモデル構築を開始します")
+
     for horizon in horizons:
         target_col = f'sens_temp_{zone_to_predict}_future_{horizon}'
 
@@ -221,7 +281,7 @@ for zone_to_predict in existing_zones:
             print(f"警告: 列 {target_col} が見つかりません。ゾーン{zone_to_predict}の{horizon}分後予測をスキップします。")
             continue
 
-        print(f"\nゾーン{zone_to_predict}の{horizon}分後の温度を予測するモデルを構築します")
+        print(f"\nゾーン{zone_to_predict}({zone_system}系統)の{horizon}分後の温度を予測するモデルを構築します")
 
         # 学習用・評価用データの準備
         features = feature_cols + poly_feature_names
@@ -272,7 +332,8 @@ for zone_to_predict in existing_zones:
             'feature_importance': pd.DataFrame({
                 'feature': features,
                 'importance': lgb_model.feature_importances_
-            })
+            }),
+            'system': zone_system  # LMR系統の情報も保存
         }
 
         # LAG依存度分析(15分後または最初のホライゾン)
@@ -288,10 +349,17 @@ for zone_to_predict in existing_zones:
             lag_percent = lag_importance/total_importance*100
             non_lag_percent = non_lag_importance/total_importance*100
 
+            # LMR系統関連特徴量の重要度
+            lmr_features = [f for f in feature_importance['feature'] if f in ['L', 'M', 'R', 'is_L_zone', 'is_M_zone', 'is_R_zone']]
+            lmr_importance = feature_importance[feature_importance['feature'].isin(lmr_features)]['importance'].sum()
+            lmr_percent = lmr_importance/total_importance*100
+
             lag_dependency[zone_to_predict] = {
                 'lag_percent': lag_percent,
                 'non_lag_percent': non_lag_percent,
-                'horizon': horizon
+                'lmr_percent': lmr_percent,
+                'horizon': horizon,
+                'system': zone_system
             }
 
         print(f"評価指標:")
@@ -306,6 +374,9 @@ for zone, results in all_results.items():
     if not results:  # 結果がない場合はスキップ
         continue
 
+    # ゾーンの系統を取得
+    zone_system = results[list(results.keys())[0]]['system']
+
     # 15分後予測(またはある最初のホライゾン)の重要度を使用
     horizon = 15 if 15 in results else list(results.keys())[0]
     feature_importance = results[horizon]['feature_importance']
@@ -313,10 +384,10 @@ for zone, results in all_results.items():
 
     plt.figure(figsize=(10, 6))
     sns.barplot(x='importance', y='feature', data=top_features)
-    plt.title(f'LightGBM Feature Importance (Zone {zone}, {horizon}min ahead)')
+    plt.title(f'LightGBM Feature Importance (Zone {zone} - {zone_system} System, {horizon}min ahead)')
     plt.tight_layout()
     plt.savefig(f'Output/feature_importance_zone_{zone}.png')
-    print(f"ゾーン{zone}の特徴量重要度グラフを保存しました: Output/feature_importance_zone_{zone}.png")
+    print(f"ゾーン{zone}({zone_system}系統)の特徴量重要度グラフを保存しました: Output/feature_importance_zone_{zone}.png")
 
 # 予測ホライゾンごとに全ゾーンの時系列と散布図をプロット
 for horizon in horizons:
@@ -345,10 +416,11 @@ for horizon in horizons:
         y_test = results['y_test']
         y_pred = results['y_pred']
         r2 = results['r2']
+        zone_system = results['system']
 
         axs[i].scatter(y_test, y_pred, alpha=0.5)
         axs[i].plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
-        axs[i].set_title(f'Zone {zone} (R² = {r2:.4f})')
+        axs[i].set_title(f'Zone {zone} - {zone_system} System (R² = {r2:.4f})')
         axs[i].set_xlabel('Actual')
         axs[i].set_ylabel('Predicted')
         axs[i].grid(True)
@@ -369,6 +441,7 @@ for horizon in horizons:
         results = all_results[zone][horizon]
         y_test = results['y_test']
         y_pred = results['y_pred']
+        zone_system = results['system']
 
         test_df = pd.DataFrame({
             'Actual': y_test,
@@ -385,7 +458,7 @@ for horizon in horizons:
         axs[i].xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
         plt.setp(axs[i].xaxis.get_majorticklabels(), rotation=45, ha='right')
 
-        axs[i].set_title(f'Zone {zone}')
+        axs[i].set_title(f'Zone {zone} - {zone_system} System')
         axs[i].set_xlabel('Time')
         axs[i].set_ylabel('Temperature (°C)')
         axs[i].grid(True)
@@ -405,13 +478,17 @@ for zone, results in all_results.items():
     if not results:  # 結果がない場合はスキップ
         continue
 
+    # ゾーンの系統を取得
+    zone_system = results[list(results.keys())[0]]['system']
+
     horizon_data = []
     for h in sorted(results.keys()):
         horizon_data.append({
             '予測ホライゾン(分)': h,
             'RMSE': results[h]['rmse'],
             'MAE': results[h]['mae'],
-            'R²': results[h]['r2']
+            'R²': results[h]['r2'],
+            'System': zone_system
         })
 
     # 結果をデータフレームに変換
@@ -423,7 +500,7 @@ for zone, results in all_results.items():
     plt.plot(zone_horizon_results[zone]['予測ホライゾン(分)'], zone_horizon_results[zone]['MAE'], 's-', label='MAE')
     plt.xlabel('Prediction Horizon (minutes)')
     plt.ylabel('Error')
-    plt.title(f'Zone {zone} - Prediction Errors by Horizon')
+    plt.title(f'Zone {zone} - {zone_system} System - Prediction Errors by Horizon')
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
@@ -435,7 +512,7 @@ for zone, results in all_results.items():
     plt.plot(zone_horizon_results[zone]['予測ホライゾン(分)'], zone_horizon_results[zone]['R²'], 'o-', color='green')
     plt.xlabel('Prediction Horizon (minutes)')
     plt.ylabel('R² Score')
-    plt.title(f'Zone {zone} - R² Score by Prediction Horizon')
+    plt.title(f'Zone {zone} - {zone_system} System - R² Score by Prediction Horizon')
     plt.grid(True)
     plt.tight_layout()
     plt.savefig(f'Output/horizon_r2_comparison_zone_{zone}.png')
@@ -447,12 +524,38 @@ lag_dependency_df = pd.DataFrame([
         'ゾーン': zone,
         'ホライゾン(分)': data['horizon'],
         'LAG依存度(%)': data['lag_percent'],
-        'その他特徴量依存度(%)': data['non_lag_percent']
+        'その他特徴量依存度(%)': data['non_lag_percent'],
+        'LMR系統依存度(%)': data.get('lmr_percent', 0),
+        '系統': data.get('system', 'Unknown')
     }
     for zone, data in lag_dependency.items()
 ])
 lag_dependency_df.to_csv('Output/lag_dependency.csv', index=False)
 print("LAG依存度分析結果をCSVファイルに保存しました: Output/lag_dependency.csv")
+
+# 系統別の平均性能を計算
+system_performance = pd.DataFrame([
+    {
+        'System': 'L',
+        'Zones': [z for z in L_ZONES if z in existing_zones],
+        'Avg_R2': np.mean([all_results[z][15]['r2'] if 15 in all_results[z] else all_results[z][list(all_results[z].keys())[0]]['r2'] for z in L_ZONES if z in existing_zones and all_results.get(z)]),
+        'Avg_RMSE': np.mean([all_results[z][15]['rmse'] if 15 in all_results[z] else all_results[z][list(all_results[z].keys())[0]]['rmse'] for z in L_ZONES if z in existing_zones and all_results.get(z)])
+    },
+    {
+        'System': 'M',
+        'Zones': [z for z in M_ZONES if z in existing_zones],
+        'Avg_R2': np.mean([all_results[z][15]['r2'] if 15 in all_results[z] else all_results[z][list(all_results[z].keys())[0]]['r2'] for z in M_ZONES if z in existing_zones and all_results.get(z)]),
+        'Avg_RMSE': np.mean([all_results[z][15]['rmse'] if 15 in all_results[z] else all_results[z][list(all_results[z].keys())[0]]['rmse'] for z in M_ZONES if z in existing_zones and all_results.get(z)])
+    },
+    {
+        'System': 'R',
+        'Zones': [z for z in R_ZONES if z in existing_zones],
+        'Avg_R2': np.mean([all_results[z][15]['r2'] if 15 in all_results[z] else all_results[z][list(all_results[z].keys())[0]]['r2'] for z in R_ZONES if z in existing_zones and all_results.get(z)]),
+        'Avg_RMSE': np.mean([all_results[z][15]['rmse'] if 15 in all_results[z] else all_results[z][list(all_results[z].keys())[0]]['rmse'] for z in R_ZONES if z in existing_zones and all_results.get(z)])
+    }
+])
+system_performance.to_csv('Output/system_performance.csv', index=False)
+print("系統別の予測性能をCSVファイルに保存しました: Output/system_performance.csv")
 
 print("\n## 分析まとめ")
 # 各ゾーンの結果をテーブルにまとめる
@@ -465,13 +568,18 @@ for zone, results in all_results.items():
     else:
         continue
 
+    # ゾーンの系統を取得
+    zone_system = results[h]['system']
+
     summary_data.append({
         'ゾーン': zone,
+        '系統': zone_system,
         'ホライゾン(分)': h,
         'RMSE': results[h]['rmse'],
         'MAE': results[h]['mae'],
         'R²': results[h]['r2'],
         'LAG依存度(%)': lag_dependency[zone]['lag_percent'],
+        'LMR系統依存度(%)': lag_dependency[zone].get('lmr_percent', 0),
         '重要特徴量': ', '.join(results[h]['feature_importance'].sort_values('importance', ascending=False).head(3)['feature'].tolist())
     })
 
@@ -482,5 +590,29 @@ print(summary_df)
 # CSVファイルとして保存
 summary_df.to_csv('Output/prediction_summary.csv', index=False)
 print("予測性能まとめをCSVファイルに保存しました: Output/prediction_summary.csv")
+
+print("\n## 系統別分析")
+print("系統別の予測性能:")
+print(system_performance)
+
+# 系統別のパフォーマンス比較グラフ
+plt.figure(figsize=(10, 6))
+sns.barplot(x='System', y='Avg_R2', data=system_performance)
+plt.title('Average R² Score by System (15min Horizon)')
+plt.xlabel('System')
+plt.ylabel('Average R² Score')
+plt.ylim(0, 1)  # R²は0-1の範囲
+plt.tight_layout()
+plt.savefig('Output/system_r2_comparison.png')
+print("系統別のR²スコア比較グラフを保存しました: Output/system_r2_comparison.png")
+
+plt.figure(figsize=(10, 6))
+sns.barplot(x='System', y='Avg_RMSE', data=system_performance)
+plt.title('Average RMSE by System (15min Horizon)')
+plt.xlabel('System')
+plt.ylabel('Average RMSE')
+plt.tight_layout()
+plt.savefig('Output/system_rmse_comparison.png')
+print("系統別のRMSE比較グラフを保存しました: Output/system_rmse_comparison.png")
 
 print("\n分析が完了しました。すべての結果はOutputディレクトリに保存されています。")
