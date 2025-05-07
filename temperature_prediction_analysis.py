@@ -264,7 +264,7 @@ existing_zones = sorted([int(col.split('_')[2]) for col in temp_cols])
 print(f"検出されたゾーン: {existing_zones}")
 
 # テスト実行用に最初のゾーンだけに制限
-test_mode = True  # テストモード用フラグ
+test_mode = False  # テストモード用フラグ
 if test_mode:
     print(f"テストモード: 最初のゾーンのみを使用します")
     existing_zones = [existing_zones[0]]  # 最初のゾーンだけ使用
@@ -287,22 +287,6 @@ print(f"目的変数を追加したデータシェイプ: {df_with_targets.shape
 # 外れ値処理の実行
 df_with_targets = filter_temperature_outliers(df_with_targets, min_temp=10, max_temp=40)
 
-# 外れ値処理前後の統計量を表示して確認
-print("\n## 外れ値処理の効果確認")
-for zone in existing_zones:
-    # 元の温度データの範囲
-    orig_min = df[f'sens_temp_{zone}'].min()
-    orig_max = df[f'sens_temp_{zone}'].max()
-    # 処理後の温度データの範囲
-    filtered_min = df_with_targets[f'sens_temp_{zone}'].min()
-    filtered_max = df_with_targets[f'sens_temp_{zone}'].max()
-
-    # 外れ値の数をカウント
-    outlier_count = ((df[f'sens_temp_{zone}'] < 10) | (df[f'sens_temp_{zone}'] > 40)).sum()
-    outlier_percent = outlier_count / len(df) * 100
-
-    print(f"ゾーン{zone}の温度範囲: 処理前 {orig_min:.2f}～{orig_max:.2f}℃ → 処理後 {filtered_min:.2f}～{filtered_max:.2f}℃ (外れ値: {outlier_count}個, {outlier_percent:.4f}%)")
-
 # 時系列特徴量の作成
 print("\n## 時系列特徴量の作成")
 # LAG特徴量の作成
@@ -315,23 +299,6 @@ lag_cols = [col for col in df_with_targets.columns if '_lag_' in col]
 rolling_cols = [col for col in df_with_targets.columns if '_rolling_' in col]
 print(f"LAG特徴量を{len(lag_cols)}個追加しました")
 print(f"移動平均特徴量を{len(rolling_cols)}個追加しました")
-
-# サンプルデータの表示
-print("\n## 時系列特徴量のサンプル（先頭5行）")
-sample_zone = existing_zones[0]
-lag_sample_cols = [f'sens_temp_{sample_zone}'] + [col for col in lag_cols if f'sens_temp_{sample_zone}' in col]
-rolling_sample_cols = [col for col in rolling_cols if f'sens_temp_{sample_zone}' in col]
-
-print("\nLAG特徴量のサンプル:")
-print(df_with_targets[lag_sample_cols].head().to_string())
-
-print("\n移動平均特徴量のサンプル:")
-print(df_with_targets[rolling_sample_cols].head().to_string())
-
-# 一時的に以下でスクリプトを終了
-print("\n外れ値処理とLAG特徴量生成の確認が完了しました。フルモデルの実行はコメントを解除してください。")
-import sys
-sys.exit(0)
 
 # 目的変数の例を表示
 target_cols = [col for col in df_with_targets.columns if 'future' in col]
