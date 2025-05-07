@@ -25,6 +25,76 @@ sns.set_theme(style="whitegrid", palette="colorblind")
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['axes.unicode_minus'] = False
 
+# 温度データの外れ値処理関数
+def filter_temperature_outliers(df, min_temp=10, max_temp=40, log=True):
+    """
+    温度データの外れ値を処理する関数
+
+    Parameters:
+    -----------
+    df : DataFrame
+        処理対象のデータフレーム
+    min_temp : float
+        最小許容温度（これ未満を外れ値とする）
+    max_temp : float
+        最大許容温度（これ超過を外れ値とする）
+    log : bool
+        外れ値処理結果をログ出力するかどうか
+
+    Returns:
+    --------
+    DataFrame
+        外れ値処理後のデータフレーム
+    """
+    if log:
+        print("\n## 温度データの外れ値処理")
+
+    df_filtered = df.copy()
+
+    # センサー温度列を特定
+    temp_cols = [col for col in df.columns if 'sens_temp_' in col and 'future' not in col]
+    future_temp_cols = [col for col in df.columns if 'sens_temp_' in col and 'future' in col]
+
+    # 現在の温度の外れ値処理
+    for col in temp_cols:
+        # 外れ値の検出
+        outliers = (df[col] < min_temp) | (df[col] > max_temp)
+        outlier_count = outliers.sum()
+
+        if outlier_count > 0 and log:
+            max_val = df.loc[outliers, col].max() if outlier_count > 0 else np.nan
+            min_val = df.loc[outliers, col].min() if outlier_count > 0 else np.nan
+            print(f"{col}で{outlier_count}個の外れ値を検出（範囲: {min_val:.2f}～{max_val:.2f}℃）")
+
+        # 外れ値をNaNに置換
+        df_filtered.loc[outliers, col] = np.nan
+
+    # 将来温度（目的変数）の外れ値処理
+    for col in future_temp_cols:
+        # 外れ値の検出
+        outliers = (df[col] < min_temp) | (df[col] > max_temp)
+        outlier_count = outliers.sum()
+
+        if outlier_count > 0 and log:
+            max_val = df.loc[outliers, col].max() if outlier_count > 0 else np.nan
+            min_val = df.loc[outliers, col].min() if outlier_count > 0 else np.nan
+            print(f"{col}で{outlier_count}個の外れ値を検出（範囲: {min_val:.2f}～{max_val:.2f}℃）")
+
+        # 外れ値をNaNに置換
+        df_filtered.loc[outliers, col] = np.nan
+
+    # 処理後の欠損値の数を集計
+    if log:
+        total_outliers = 0
+        for col in temp_cols + future_temp_cols:
+            missing_count = df_filtered[col].isna().sum() - df[col].isna().sum()
+            if missing_count > 0:
+                total_outliers += missing_count
+
+        print(f"全体で{total_outliers}個の外れ値をNaNに置換しました")
+
+    return df_filtered
+
 print("# 空調システム室内温度予測モデル開発")
 print("## データ読み込みと前処理")
 
@@ -129,9 +199,75 @@ def create_future_targets(df, zone_nums, horizons_minutes=[5, 10, 15, 20, 30]):
 
     return df_copy
 
+# LAG特徴量を作成する関数
+def create_lag_features(df, zone_nums, lag_periods=[1, 3, 6]):
+    """
+    各ゾーンの過去の温度と湿度をLAG特徴量として作成
+
+    Parameters:
+    -----------
+    df : DataFrame
+        時系列インデックスを持つデータフレーム
+    zone_nums : list
+        ゾーン番号のリスト
+    lag_periods : list
+        ラグ期間（データサンプリング単位）のリスト
+
+    Returns:
+    --------
+    DataFrame
+        LAG特徴量を追加したデータフレーム
+    """
+    print("LAG特徴量を作成中...")
+    df_copy = df.copy()
+
+    for zone in zone_nums:
+        # 温度のLAG特徴量のみ作成（メモリ節約のため湿度は除外）
+        if f'sens_temp_{zone}' in df.columns:
+            for lag in lag_periods:
+                df_copy[f'sens_temp_{zone}_lag_{lag}'] = df_copy[f'sens_temp_{zone}'].shift(lag)
+
+    return df_copy
+
+# 移動平均特徴量を作成する関数
+def create_rolling_features(df, zone_nums, windows=[6, 12]):
+    """
+    各ゾーンの温度と湿度の移動平均を特徴量として作成
+
+    Parameters:
+    -----------
+    df : DataFrame
+        時系列インデックスを持つデータフレーム
+    zone_nums : list
+        ゾーン番号のリスト
+    windows : list
+        移動平均の窓サイズ（データサンプリング単位）のリスト
+
+    Returns:
+    --------
+    DataFrame
+        移動平均特徴量を追加したデータフレーム
+    """
+    print("移動平均特徴量を作成中...")
+    df_copy = df.copy()
+
+    for zone in zone_nums:
+        # 温度の移動平均のみ作成（移動標準偏差は除外）
+        if f'sens_temp_{zone}' in df.columns:
+            for window in windows:
+                df_copy[f'sens_temp_{zone}_rolling_mean_{window}'] = df_copy[f'sens_temp_{zone}'].rolling(window=window).mean()
+
+    return df_copy
+
 # 実際のゾーン番号を抽出
 existing_zones = sorted([int(col.split('_')[2]) for col in temp_cols])
 print(f"検出されたゾーン: {existing_zones}")
+
+# テスト実行用に最初のゾーンだけに制限
+test_mode = True  # テストモード用フラグ
+if test_mode:
+    print(f"テストモード: 最初のゾーンのみを使用します")
+    existing_zones = [existing_zones[0]]  # 最初のゾーンだけ使用
 
 # LMRのゾーン区分を定義
 L_ZONES = [0, 1, 6, 7]
@@ -147,6 +283,55 @@ print(f"R系統ゾーン: {[z for z in R_ZONES if z in existing_zones]}")
 # 目的変数の作成
 df_with_targets = create_future_targets(df, existing_zones)
 print(f"目的変数を追加したデータシェイプ: {df_with_targets.shape}")
+
+# 外れ値処理の実行
+df_with_targets = filter_temperature_outliers(df_with_targets, min_temp=10, max_temp=40)
+
+# 外れ値処理前後の統計量を表示して確認
+print("\n## 外れ値処理の効果確認")
+for zone in existing_zones:
+    # 元の温度データの範囲
+    orig_min = df[f'sens_temp_{zone}'].min()
+    orig_max = df[f'sens_temp_{zone}'].max()
+    # 処理後の温度データの範囲
+    filtered_min = df_with_targets[f'sens_temp_{zone}'].min()
+    filtered_max = df_with_targets[f'sens_temp_{zone}'].max()
+
+    # 外れ値の数をカウント
+    outlier_count = ((df[f'sens_temp_{zone}'] < 10) | (df[f'sens_temp_{zone}'] > 40)).sum()
+    outlier_percent = outlier_count / len(df) * 100
+
+    print(f"ゾーン{zone}の温度範囲: 処理前 {orig_min:.2f}～{orig_max:.2f}℃ → 処理後 {filtered_min:.2f}～{filtered_max:.2f}℃ (外れ値: {outlier_count}個, {outlier_percent:.4f}%)")
+
+# 時系列特徴量の作成
+print("\n## 時系列特徴量の作成")
+# LAG特徴量の作成
+df_with_targets = create_lag_features(df_with_targets, existing_zones)
+# 移動平均特徴量の作成
+df_with_targets = create_rolling_features(df_with_targets, existing_zones)
+
+# 新しい特徴量を特定
+lag_cols = [col for col in df_with_targets.columns if '_lag_' in col]
+rolling_cols = [col for col in df_with_targets.columns if '_rolling_' in col]
+print(f"LAG特徴量を{len(lag_cols)}個追加しました")
+print(f"移動平均特徴量を{len(rolling_cols)}個追加しました")
+
+# サンプルデータの表示
+print("\n## 時系列特徴量のサンプル（先頭5行）")
+sample_zone = existing_zones[0]
+lag_sample_cols = [f'sens_temp_{sample_zone}'] + [col for col in lag_cols if f'sens_temp_{sample_zone}' in col]
+rolling_sample_cols = [col for col in rolling_cols if f'sens_temp_{sample_zone}' in col]
+
+print("\nLAG特徴量のサンプル:")
+print(df_with_targets[lag_sample_cols].head().to_string())
+
+print("\n移動平均特徴量のサンプル:")
+print(df_with_targets[rolling_sample_cols].head().to_string())
+
+# 一時的に以下でスクリプトを終了
+print("\n外れ値処理とLAG特徴量生成の確認が完了しました。フルモデルの実行はコメントを解除してください。")
+import sys
+sys.exit(0)
 
 # 目的変数の例を表示
 target_cols = [col for col in df_with_targets.columns if 'future' in col]
@@ -181,6 +366,10 @@ if 'R' in df.columns:
 
 # 時間特徴量
 feature_cols.extend(['hour', 'day_of_week', 'is_weekend'])
+
+# LAG特徴量と移動平均特徴量を追加
+feature_cols.extend(lag_cols)
+feature_cols.extend(rolling_cols)
 
 # 重複する特徴量を削除
 feature_cols = list(dict.fromkeys(feature_cols))
@@ -339,15 +528,32 @@ for zone_to_predict in existing_zones:
         # LAG依存度分析(15分後または最初のホライゾン)
         if horizon == 15 or (horizon == list(sorted(horizons))[0] and 15 not in horizons):
             feature_importance = zone_results[horizon]['feature_importance']
-            lag_features = [f for f in feature_importance['feature'] if 'sens_temp' in f and 'future' not in f]
-            non_lag_features = [f for f in feature_importance['feature'] if f not in lag_features]
 
+            # 基本的な温度センサー特徴量（現在値）
+            basic_temp_features = [f for f in feature_importance['feature'] if 'sens_temp' in f and 'future' not in f and '_lag_' not in f and '_rolling_' not in f]
+
+            # 追加のLAG特徴量
+            lag_features = [f for f in feature_importance['feature'] if '_lag_' in f]
+
+            # 移動平均特徴量
+            rolling_features = [f for f in feature_importance['feature'] if '_rolling_' in f]
+
+            # その他の特徴量
+            other_features = [f for f in feature_importance['feature'] if f not in basic_temp_features and f not in lag_features and f not in rolling_features]
+
+            # 重要度の合計を計算
+            basic_temp_importance = feature_importance[feature_importance['feature'].isin(basic_temp_features)]['importance'].sum()
             lag_importance = feature_importance[feature_importance['feature'].isin(lag_features)]['importance'].sum()
-            non_lag_importance = feature_importance[feature_importance['feature'].isin(non_lag_features)]['importance'].sum()
-            total_importance = lag_importance + non_lag_importance
+            rolling_importance = feature_importance[feature_importance['feature'].isin(rolling_features)]['importance'].sum()
+            other_importance = feature_importance[feature_importance['feature'].isin(other_features)]['importance'].sum()
+            total_importance = basic_temp_importance + lag_importance + rolling_importance + other_importance
 
+            # パーセンテージに変換
+            basic_temp_percent = basic_temp_importance/total_importance*100
             lag_percent = lag_importance/total_importance*100
-            non_lag_percent = non_lag_importance/total_importance*100
+            rolling_percent = rolling_importance/total_importance*100
+            other_percent = other_importance/total_importance*100
+            time_series_percent = basic_temp_percent + lag_percent + rolling_percent
 
             # LMR系統関連特徴量の重要度
             lmr_features = [f for f in feature_importance['feature'] if f in ['L', 'M', 'R', 'is_L_zone', 'is_M_zone', 'is_R_zone']]
@@ -355,8 +561,11 @@ for zone_to_predict in existing_zones:
             lmr_percent = lmr_importance/total_importance*100
 
             lag_dependency[zone_to_predict] = {
+                'current_temp_percent': basic_temp_percent,
                 'lag_percent': lag_percent,
-                'non_lag_percent': non_lag_percent,
+                'rolling_percent': rolling_percent,
+                'time_series_total_percent': time_series_percent,
+                'other_percent': other_percent,
                 'lmr_percent': lmr_percent,
                 'horizon': horizon,
                 'system': zone_system
@@ -523,8 +732,11 @@ lag_dependency_df = pd.DataFrame([
     {
         'ゾーン': zone,
         'ホライゾン(分)': data['horizon'],
-        'LAG依存度(%)': data['lag_percent'],
-        'その他特徴量依存度(%)': data['non_lag_percent'],
+        '現在温度依存度(%)': data['current_temp_percent'],
+        'LAG特徴量依存度(%)': data['lag_percent'],
+        '移動平均依存度(%)': data['rolling_percent'],
+        '時系列特徴量合計(%)': data['time_series_total_percent'],
+        'その他特徴量依存度(%)': data['other_percent'],
         'LMR系統依存度(%)': data.get('lmr_percent', 0),
         '系統': data.get('system', 'Unknown')
     }
@@ -578,7 +790,10 @@ for zone, results in all_results.items():
         'RMSE': results[h]['rmse'],
         'MAE': results[h]['mae'],
         'R²': results[h]['r2'],
-        'LAG依存度(%)': lag_dependency[zone]['lag_percent'],
+        '現在温度依存度(%)': lag_dependency[zone]['current_temp_percent'],
+        'LAG特徴量依存度(%)': lag_dependency[zone]['lag_percent'],
+        '移動平均依存度(%)': lag_dependency[zone]['rolling_percent'],
+        '時系列特徴量合計(%)': lag_dependency[zone]['time_series_total_percent'],
         'LMR系統依存度(%)': lag_dependency[zone].get('lmr_percent', 0),
         '重要特徴量': ', '.join(results[h]['feature_importance'].sort_values('importance', ascending=False).head(3)['feature'].tolist())
     })
