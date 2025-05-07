@@ -1,0 +1,146 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# 📊 Python Data Analysis & Visualization Guidelines
+
+---
+
+## 1. Core Principles
+
+- Prioritize **readability** and **reproducibility** in all workflows.
+- Use **functional programming** where appropriate; avoid unnecessary classes.
+- Favor **vectorized operations** with `pandas`/`numpy` over explicit loops.
+- Follow **PEP 8** style conventions.
+- Use **descriptive variable names** that reflect the data they contain.
+
+---
+
+## 2. Data Ingestion & Validation
+
+- Always start with **data quality checks**: nulls, dtypes, value ranges.
+- Use `try-except` blocks for I/O operations (e.g., reading files).
+- Convert low-cardinality string columns to `CategoricalDtype` when appropriate.
+
+```python
+df = pd.read_csv("data.csv")
+df["region"] = df["region"].astype("category")
+
+
+
+⸻
+
+3. Data Manipulation (pandas)
+	•	Use method chaining for step-by-step transformations.
+	•	Prefer loc, iloc, query, and assign for clear data selection and transformation.
+	•	Use groupby().agg() for efficient aggregation.
+
+summary = (
+    df
+    .query("year >= 2020")
+    .groupby("region")["sales"]
+    .agg(["mean", "sum"])
+    .reset_index()
+)
+
+
+
+⸻
+
+4. Handling Missing and Invalid Data
+	•	Handle missing values with dropna(), fillna(), or flagging based on context.
+	•	Validate value ranges with assert or between().
+
+assert df["price"].between(0, 10000).all(), "Invalid price values detected"
+
+
+
+⸻
+
+5. Visualization (matplotlib / seaborn)
+	•	Use %matplotlib inline at the start of Jupyter notebooks.
+	•	Always include axis labels, titles, and legends.
+	•	Prefer colorblind-friendly palettes (e.g., "colorblind" in seaborn).
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+def plot_sales_by_region(data):
+    sns.set_theme(style="whitegrid", palette="colorblind")
+    plt.figure(figsize=(8, 4))
+    sns.barplot(x="region", y="sales", data=data)
+    plt.title("Sales by Region")
+    plt.xlabel("Region")
+    plt.ylabel("Sales")
+    plt.tight_layout()
+
+
+
+⸻
+
+6. Jupyter Notebook Best Practices
+	•	Use markdown cells to divide sections clearly (# Section Name).
+	•	Keep code cells modular and focused on one task.
+	•	Example magics: %matplotlib inline, %timeit, %load_ext autoreload.
+
+⸻
+
+7. Performance Optimization
+	•	Prefer vectorized computations via pandas/numpy.
+	•	Use dask or chunking for large datasets.
+	•	Use df.memory_usage(deep=True) to monitor memory usage.
+	•	Profile slow sections using %time, %%timeit, or cProfile.
+
+⸻
+
+8. Dependencies
+	•	Core: pandas, numpy, matplotlib, seaborn
+	•	Optional: scikit-learn (ML/preprocessing), dask (scalability)
+	•	Use requirements.txt or poetry for dependency versioning.
+
+⸻
+
+9. Automation via Makefile
+	•	Use a Makefile to simplify routine commands:
+
+# Makefile
+install:
+	pip install -r requirements.txt
+
+start:
+	jupyter notebook
+
+clean:
+	find . -name "*.pyc" -delete
+
+	•	Typical usage:
+	•	make install: Install dependencies.
+	•	make start: Launch Jupyter Notebook.
+	•	make clean: Remove cache files.
+
+⸻
+
+10. Documentation in README
+	•	Include a comprehensive README.md that covers:
+	•	Project overview and purpose
+	•	Data source(s)
+	•	How to run analysis via Makefile
+	•	Environment setup instructions
+	•	Assumptions and limitations
+
+Example:
+
+## 🔧 How to Use
+
+```bash
+make install   # Install required packages
+make start     # Launch Jupyter Notebook
+
+📁 Project Structure
+	•	notebooks/ – Jupyter Notebooks
+	•	data/ – Raw and processed data
+	•	scripts/ – Reusable data processing modules
+	•	Makefile – Workflow automation
+
+---
