@@ -307,108 +307,199 @@ print(f"\nゾーン{first_zone}の目的変数サンプル:")
 print(df_with_targets[[f'sens_temp_{first_zone}'] + [col for col in target_cols if f'_{first_zone}_future' in col]].head(10))
 
 print("\n## 特徴量エンジニアリング")
+print("サーモ状態特徴量と未来特徴量を作成します...")
 
-# 基本的な特徴量のリスト
+# 予測ホライゾンの定義
+horizons = [5, 10, 15, 20, 30]
+
+# 未来シフト説明変数を作成する関数
+def create_future_features(df, feature_name, horizons_minutes=[5, 10, 15, 20, 30]):
+    """
+    指定された特徴量の未来値を作成する関数
+
+    Parameters:
+    -----------
+    df : DataFrame
+        時系列インデックスを持つデータフレーム
+    feature_name : str
+        未来シフトする特徴量の名前
+    horizons_minutes : list
+        予測ホライゾン（分）のリスト
+
+    Returns:
+    --------
+    DataFrame
+        未来特徴量を追加したデータフレーム
+    """
+    df_copy = df.copy()
+    created_features = []
+
+    if feature_name not in df.columns:
+        print(f"警告: 列 {feature_name} が見つかりません")
+        return df_copy, created_features
+
+    for horizon in horizons_minutes:
+        # 時間間隔から必要なシフト数を計算
+        shift_periods = int(horizon / time_diff.total_seconds() * 60)
+
+        # 指定分後の値を取得
+        future_col = f'{feature_name}_future_{horizon}'
+        df_copy[future_col] = df_copy[feature_name].shift(-shift_periods)
+        created_features.append(future_col)
+
+    return df_copy, created_features
+
+# サーモ状態の特徴量を作成（センサー温度とAC設定温度の差）
+thermo_features = []
+for zone in existing_zones:
+    if f'sens_temp_{zone}' in df_with_targets.columns and f'AC_set_{zone}' in df_with_targets.columns:
+        # サーモ状態 = センサー温度 - 設定温度
+        thermo_col = f'thermo_state_{zone}'
+        df_with_targets[thermo_col] = df_with_targets[f'sens_temp_{zone}'] - df_with_targets[f'AC_set_{zone}']
+        thermo_features.append(thermo_col)
+        print(f"ゾーン{zone}のサーモ状態特徴量を作成しました: {thermo_col}")
+
+# 基本的な特徴量のリスト（修正版）
 feature_cols = []
 
-# センサー温度・湿度
+# センサー温度・湿度（未来NG）
 feature_cols.extend([col for col in df.columns if ('sens_temp_' in col or 'sens_humid_' in col) and 'future' not in col])
 
-# 空調システム関連
-feature_cols.extend([col for col in df.columns if 'AC_' in col])
+# サーモ状態特徴量を追加
+feature_cols.extend(thermo_features)
+
+# 空調システム関連（AC_tempは削除、AC_setも削除予定だがサーモ状態計算のために一時的に保持）
+ac_features = [col for col in df.columns if 'AC_' in col and 'AC_temp' not in col]
+feature_cols.extend(ac_features)
 
 # 環境データ
+env_features = []
 if 'atmospheric　temperature' in df.columns:
     feature_cols.append('atmospheric　temperature')
+    env_features.append('atmospheric　temperature')
 if 'total　solar　radiation' in df.columns:
     feature_cols.append('total　solar　radiation')
+    env_features.append('total　solar　radiation')
 
-# 電力データ
-if 'L' in df.columns:
-    feature_cols.append('L')
-if 'M' in df.columns:
-    feature_cols.append('M')
-if 'R' in df.columns:
-    feature_cols.append('R')
+# 電力データは削除（L, M, R）
 
-# 時間特徴量
-feature_cols.extend(['hour', 'day_of_week', 'is_weekend'])
+# 時間特徴量（hourのみ残す）
+feature_cols.append('hour')
+# day_of_weekとis_weekendは削除
 
 # LAG特徴量と移動平均特徴量を追加
 feature_cols.extend(lag_cols)
 feature_cols.extend(rolling_cols)
 
+# LMR系統フラグを特徴量から削除（要件に従い）
+# df_with_targets['is_L_zone']などは残すが、特徴量からは除外
+
+# 未来特徴量の追加（予測ホライゾンごとにループ）
+future_features_all = {}
+for horizon in horizons:
+    future_features = []
+
+    # 1. サーモ状態の未来特徴量
+    for thermo_col in thermo_features:
+        df_with_targets, created_features = create_future_features(df_with_targets, thermo_col, [horizon])
+        future_features.extend(created_features)
+
+    # 2. 空調発停(AC_valid)の未来特徴量
+    for zone in existing_zones:
+        if f'AC_valid_{zone}' in df.columns:
+            df_with_targets, created_features = create_future_features(df_with_targets, f'AC_valid_{zone}', [horizon])
+            future_features.extend(created_features)
+
+    # 3. 空調モード(AC_mode)の未来特徴量
+    for zone in existing_zones:
+        if f'AC_mode_{zone}' in df.columns:
+            df_with_targets, created_features = create_future_features(df_with_targets, f'AC_mode_{zone}', [horizon])
+            future_features.extend(created_features)
+
+    # 4. 環境データの未来特徴量
+    for env_feature in env_features:
+        df_with_targets, created_features = create_future_features(df_with_targets, env_feature, [horizon])
+        future_features.extend(created_features)
+
+    future_features_all[horizon] = future_features
+    print(f"{horizon}分後予測用の未来特徴量を{len(future_features)}個作成しました")
+
 # 重複する特徴量を削除
 feature_cols = list(dict.fromkeys(feature_cols))
 
-# LMR系統とゾーンの関係を示す特徴量を追加
-df_with_targets['is_L_zone'] = 0
-df_with_targets['is_M_zone'] = 0
-df_with_targets['is_R_zone'] = 0
-
-# 各ゾーンに対応するLMR系統フラグを設定
-for zone in existing_zones:
-    if zone in L_ZONES:
-        # そのゾーンのセンサー値が存在する行のみフラグを立てる
-        mask = df_with_targets[f'sens_temp_{zone}'].notna()
-        df_with_targets.loc[mask, 'is_L_zone'] = 1
-    elif zone in M_ZONES:
-        mask = df_with_targets[f'sens_temp_{zone}'].notna()
-        df_with_targets.loc[mask, 'is_M_zone'] = 1
-    elif zone in R_ZONES:
-        mask = df_with_targets[f'sens_temp_{zone}'].notna()
-        df_with_targets.loc[mask, 'is_R_zone'] = 1
-
-# LMR系統フラグを特徴量に追加
-feature_cols.extend(['is_L_zone', 'is_M_zone', 'is_R_zone'])
-
-# 多項式特徴量の作成（次数2）
+# 多項式特徴量の作成（次数2）- 修正版
 print("多項式特徴量を作成中...")
-key_features = []
-for zone in existing_zones:
-    if f'sens_temp_{zone}' in df.columns and f'AC_set_{zone}' in df.columns:
-        key_features.extend([f'sens_temp_{zone}', f'AC_set_{zone}'])
-    if 'atmospheric　temperature' in df.columns:
-        key_features.append('atmospheric　temperature')
+poly_features_all = {}
 
-# L, M, R特徴量と対応するゾーンの温度間の交互作用を追加
-if 'L' in df.columns:
-    for zone in [z for z in L_ZONES if z in existing_zones]:
+for horizon in horizons:
+    # この予測ホライゾン用の特徴量リスト
+    key_features = []
+
+    # 現在のセンサー温度
+    for zone in existing_zones:
         if f'sens_temp_{zone}' in df.columns:
-            key_features.append('L')
+            key_features.append(f'sens_temp_{zone}')
 
-if 'M' in df.columns:
-    for zone in [z for z in M_ZONES if z in existing_zones]:
-        if f'sens_temp_{zone}' in df.columns:
-            key_features.append('M')
+    # サーモ状態（現在と未来）
+    for zone in existing_zones:
+        thermo_col = f'thermo_state_{zone}'
+        if thermo_col in df_with_targets.columns:
+            key_features.append(thermo_col)
+            # 対応する未来シフト特徴量も追加
+            future_thermo = f'thermo_state_{zone}_future_{horizon}'
+            if future_thermo in df_with_targets.columns:
+                key_features.append(future_thermo)
 
-if 'R' in df.columns:
-    for zone in [z for z in R_ZONES if z in existing_zones]:
-        if f'sens_temp_{zone}' in df.columns:
-            key_features.append('R')
+    # 空調発停（現在と未来）
+    for zone in existing_zones:
+        if f'AC_valid_{zone}' in df.columns:
+            key_features.append(f'AC_valid_{zone}')
+            # 対応する未来シフト特徴量も追加
+            future_valid = f'AC_valid_{zone}_future_{horizon}'
+            if future_valid in df_with_targets.columns:
+                key_features.append(future_valid)
 
-# 重複を削除
-key_features = list(dict.fromkeys(key_features))
+    # 環境データ（現在と未来）
+    for env_feature in env_features:
+        if env_feature in df.columns:
+            key_features.append(env_feature)
+            # 対応する未来シフト特徴量も追加
+            future_env = f'{env_feature}_future_{horizon}'
+            if future_env in df_with_targets.columns:
+                key_features.append(future_env)
 
-# 欠損値を含む行を除外
-df_poly = df_with_targets[key_features].dropna()
+    # LMR系統フラグは特徴量から除外
 
-poly = PolynomialFeatures(degree=2, include_bias=False)
-poly_features = poly.fit_transform(df_poly)
-poly_feature_names = [f"poly_{i}" for i in range(poly_features.shape[1])]
+    # 重複を削除
+    key_features = list(dict.fromkeys(key_features))
 
-# 元のデータフレームと結合
-df_poly_features = pd.DataFrame(poly_features, columns=poly_feature_names, index=df_poly.index)
-df_with_all_features = pd.concat([df_with_targets, df_poly_features], axis=1)
+    # 欠損値を含む行を除外
+    df_poly = df_with_targets[key_features].dropna()
 
-print(f"多項式特徴量を追加しました: {len(poly_feature_names)}個の特徴量")
+    if len(df_poly) == 0:
+        print(f"警告: {horizon}分後の多項式特徴量作成のためのデータがありません")
+        poly_features_all[horizon] = []
+        continue
+
+    poly = PolynomialFeatures(degree=2, include_bias=False)
+    poly_features = poly.fit_transform(df_poly)
+    poly_feature_names = [f"poly_{horizon}_{i}" for i in range(poly_features.shape[1])]
+
+    # 元のデータフレームと結合
+    df_poly_features = pd.DataFrame(poly_features, columns=poly_feature_names, index=df_poly.index)
+    df_with_targets = pd.concat([df_with_targets, df_poly_features], axis=1)
+
+    poly_features_all[horizon] = poly_feature_names
+    print(f"{horizon}分後用の多項式特徴量を{len(poly_feature_names)}個追加しました")
+
+# 最終的なデータフレームを作成
+df_with_all_features = df_with_targets.copy()
 print(f"最終的なデータシェイプ: {df_with_all_features.shape}")
 
 print("\n## モデルトレーニングと評価")
 
 # すべてのゾーンと予測ホライゾンの組み合わせに対する結果を保存するためのディクショナリ
 all_results = {}
-horizons = [5, 10, 15, 20, 30]
 
 # LAG依存度分析結果を保存する辞書
 lag_dependency = {}
@@ -439,9 +530,19 @@ for zone_to_predict in existing_zones:
 
         print(f"\nゾーン{zone_to_predict}({zone_system}系統)の{horizon}分後の温度を予測するモデルを構築します")
 
+        # このホライゾン用の特徴量を準備
+        horizon_features = feature_cols.copy()
+
+        # このホライゾン用の未来特徴量を追加
+        if horizon in future_features_all:
+            horizon_features.extend(future_features_all[horizon])
+
+        # このホライゾン用の多項式特徴量を追加
+        if horizon in poly_features_all:
+            horizon_features.extend(poly_features_all[horizon])
+
         # 学習用・評価用データの準備
-        features = feature_cols + poly_feature_names
-        X = df_with_all_features[features].dropna()
+        X = df_with_all_features[horizon_features].dropna()
         y = df_with_all_features[target_col].loc[X.index]
 
         # 欠損値がある行を削除
@@ -453,7 +554,7 @@ for zone_to_predict in existing_zones:
             print(f"警告: ゾーン{zone_to_predict}の{horizon}分後予測に使用可能なデータがありません。スキップします。")
             continue
 
-        print(f"使用する特徴量の数: {len(features)}")
+        print(f"使用する特徴量の数: {len(horizon_features)}")
         print(f"トレーニングデータのサイズ: {X.shape}")
 
         # トレーニングデータとテストデータに分割
@@ -486,7 +587,7 @@ for zone_to_predict in existing_zones:
             'mae': mae,
             'r2': r2,
             'feature_importance': pd.DataFrame({
-                'feature': features,
+                'feature': horizon_features,
                 'importance': lgb_model.feature_importances_
             }),
             'system': zone_system  # LMR系統の情報も保存
@@ -505,35 +606,55 @@ for zone_to_predict in existing_zones:
             # 移動平均特徴量
             rolling_features = [f for f in feature_importance['feature'] if '_rolling_' in f]
 
+            # サーモ状態特徴量
+            thermo_features = [f for f in feature_importance['feature'] if 'thermo_state' in f]
+
+            # 未来特徴量
+            future_features = [f for f in feature_importance['feature'] if '_future_' in f and 'sens_temp' not in f]
+
+            # 多項式特徴量
+            poly_features = [f for f in feature_importance['feature'] if 'poly_' in f]
+
             # その他の特徴量
-            other_features = [f for f in feature_importance['feature'] if f not in basic_temp_features and f not in lag_features and f not in rolling_features]
+            other_features = [f for f in feature_importance['feature']
+                             if f not in basic_temp_features
+                             and f not in lag_features
+                             and f not in rolling_features
+                             and f not in thermo_features
+                             and f not in future_features
+                             and f not in poly_features]
 
             # 重要度の合計を計算
             basic_temp_importance = feature_importance[feature_importance['feature'].isin(basic_temp_features)]['importance'].sum()
             lag_importance = feature_importance[feature_importance['feature'].isin(lag_features)]['importance'].sum()
             rolling_importance = feature_importance[feature_importance['feature'].isin(rolling_features)]['importance'].sum()
+            thermo_importance = feature_importance[feature_importance['feature'].isin(thermo_features)]['importance'].sum()
+            future_importance = feature_importance[feature_importance['feature'].isin(future_features)]['importance'].sum()
+            poly_importance = feature_importance[feature_importance['feature'].isin(poly_features)]['importance'].sum()
             other_importance = feature_importance[feature_importance['feature'].isin(other_features)]['importance'].sum()
-            total_importance = basic_temp_importance + lag_importance + rolling_importance + other_importance
+
+            total_importance = (basic_temp_importance + lag_importance + rolling_importance +
+                               thermo_importance + future_importance + poly_importance + other_importance)
 
             # パーセンテージに変換
             basic_temp_percent = basic_temp_importance/total_importance*100
             lag_percent = lag_importance/total_importance*100
             rolling_percent = rolling_importance/total_importance*100
+            thermo_percent = thermo_importance/total_importance*100
+            future_percent = future_importance/total_importance*100
+            poly_percent = poly_importance/total_importance*100
             other_percent = other_importance/total_importance*100
             time_series_percent = basic_temp_percent + lag_percent + rolling_percent
-
-            # LMR系統関連特徴量の重要度
-            lmr_features = [f for f in feature_importance['feature'] if f in ['L', 'M', 'R', 'is_L_zone', 'is_M_zone', 'is_R_zone']]
-            lmr_importance = feature_importance[feature_importance['feature'].isin(lmr_features)]['importance'].sum()
-            lmr_percent = lmr_importance/total_importance*100
 
             lag_dependency[zone_to_predict] = {
                 'current_temp_percent': basic_temp_percent,
                 'lag_percent': lag_percent,
                 'rolling_percent': rolling_percent,
                 'time_series_total_percent': time_series_percent,
+                'thermo_percent': thermo_percent,
+                'future_percent': future_percent,
+                'poly_percent': poly_percent,
                 'other_percent': other_percent,
-                'lmr_percent': lmr_percent,
                 'horizon': horizon,
                 'system': zone_system
             }
@@ -703,8 +824,10 @@ lag_dependency_df = pd.DataFrame([
         'LAG特徴量依存度(%)': data['lag_percent'],
         '移動平均依存度(%)': data['rolling_percent'],
         '時系列特徴量合計(%)': data['time_series_total_percent'],
+        'サーモ状態依存度(%)': data.get('thermo_percent', 0),
+        '未来特徴量依存度(%)': data.get('future_percent', 0),
+        '多項式特徴量依存度(%)': data.get('poly_percent', 0),
         'その他特徴量依存度(%)': data['other_percent'],
-        'LMR系統依存度(%)': data.get('lmr_percent', 0),
         '系統': data.get('system', 'Unknown')
     }
     for zone, data in lag_dependency.items()
@@ -761,8 +884,10 @@ for zone, results in all_results.items():
         'LAG特徴量依存度(%)': lag_dependency[zone]['lag_percent'],
         '移動平均依存度(%)': lag_dependency[zone]['rolling_percent'],
         '時系列特徴量合計(%)': lag_dependency[zone]['time_series_total_percent'],
-        'LMR系統依存度(%)': lag_dependency[zone].get('lmr_percent', 0),
-        '重要特徴量': ', '.join(results[h]['feature_importance'].sort_values('importance', ascending=False).head(3)['feature'].tolist())
+        'サーモ状態依存度(%)': lag_dependency[zone].get('thermo_percent', 0),
+        '未来特徴量依存度(%)': lag_dependency[zone].get('future_percent', 0),
+        '多項式特徴量依存度(%)': lag_dependency[zone].get('poly_percent', 0),
+        '重要特徴量': ', '.join(results[h]['feature_importance'].sort_values('importance', ascending=False).head(5)['feature'].tolist())
     })
 
 summary_df = pd.DataFrame(summary_data)
