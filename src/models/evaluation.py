@@ -243,3 +243,113 @@ def analyze_lag_dependency(feature_importance, zone, horizon, zone_system):
     }
 
     return result
+
+
+def calculate_physical_validity_metrics(y_true, y_pred, ac_state, ac_mode, horizon):
+    """
+    予測の物理的妥当性を評価する指標を計算する関数
+
+    Parameters:
+    -----------
+    y_true : Series or array-like
+        実測値
+    y_pred : Series or array-like
+        予測値
+    ac_state : Series or array-like
+        空調の状態（0: OFF, 1: ON）
+    ac_mode : Series or array-like
+        空調のモード（0: 冷房, 1: 暖房）
+    horizon : int
+        予測ホライゾン（分）
+
+    Returns:
+    --------
+    dict
+        物理的妥当性の評価指標
+    """
+    # 温度変化量の計算
+    temp_change_true = y_true.diff()
+    temp_change_pred = y_pred.diff()
+
+    # 物理的妥当性の評価
+    validity_metrics = {
+        'cooling_validity': 0.0,  # 冷房時の妥当性
+        'heating_validity': 0.0,  # 暖房時の妥当性
+        'natural_validity': 0.0,  # 空調OFF時の妥当性
+        'direction_accuracy': 0.0,  # 温度変化方向の一致率
+        'response_delay': 0.0,  # 応答遅れの評価
+    }
+
+    # 冷房時の妥当性評価
+    cooling_mask = (ac_state == 1) & (ac_mode == 0)
+    if cooling_mask.sum() > 0:
+        cooling_valid = (temp_change_pred[cooling_mask] < 0).mean()
+        validity_metrics['cooling_validity'] = cooling_valid
+
+    # 暖房時の妥当性評価
+    heating_mask = (ac_state == 1) & (ac_mode == 1)
+    if heating_mask.sum() > 0:
+        heating_valid = (temp_change_pred[heating_mask] > 0).mean()
+        validity_metrics['heating_validity'] = heating_valid
+
+    # 空調OFF時の妥当性評価
+    off_mask = (ac_state == 0)
+    if off_mask.sum() > 0:
+        # 外気温との関係を考慮した自然温度変化の妥当性
+        natural_valid = (temp_change_pred[off_mask] * temp_change_true[off_mask] > 0).mean()
+        validity_metrics['natural_validity'] = natural_valid
+
+    # 温度変化方向の一致率
+    direction_accuracy = (temp_change_pred * temp_change_true > 0).mean()
+    validity_metrics['direction_accuracy'] = direction_accuracy
+
+    # 応答遅れの評価
+    # 空調状態変化後の温度変化の遅れを評価
+    ac_state_change = ac_state.diff().abs()
+    if ac_state_change.sum() > 0:
+        # 状態変化後の温度変化の遅れを計算
+        response_delays = []
+        for i in range(1, len(ac_state_change)):
+            if ac_state_change[i] == 1:
+                # 状態変化後の温度変化を観察
+                true_change = temp_change_true[i:i+horizon].sum()
+                pred_change = temp_change_pred[i:i+horizon].sum()
+                if true_change != 0:
+                    delay = abs(pred_change - true_change) / abs(true_change)
+                    response_delays.append(delay)
+
+        if response_delays:
+            validity_metrics['response_delay'] = np.mean(response_delays)
+
+    return validity_metrics
+
+
+def print_physical_validity_metrics(metrics, zone=None, horizon=None):
+    """
+    物理的妥当性の評価指標を整形して表示する関数
+
+    Parameters:
+    -----------
+    metrics : dict
+        物理的妥当性の評価指標
+    zone : int, optional
+        ゾーン番号
+    horizon : int, optional
+        予測ホライゾン（分）
+    """
+    header = "物理的妥当性の評価"
+    if zone is not None:
+        header += f" (ゾーン{zone}"
+        if horizon is not None:
+            header += f", {horizon}分後)"
+        else:
+            header += ")"
+    elif horizon is not None:
+        header += f" ({horizon}分後)"
+
+    print(f"\n{header}:")
+    print(f"冷房時の妥当性: {metrics['cooling_validity']:.4f}")
+    print(f"暖房時の妥当性: {metrics['heating_validity']:.4f}")
+    print(f"自然温度変化の妥当性: {metrics['natural_validity']:.4f}")
+    print(f"温度変化方向の一致率: {metrics['direction_accuracy']:.4f}")
+    print(f"応答遅れの評価: {metrics['response_delay']:.4f}")

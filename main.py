@@ -11,6 +11,7 @@ import numpy as np
 import os
 import pickle
 import warnings
+import argparse  # 追加: コマンドライン引数のパーサー
 warnings.filterwarnings('ignore')
 
 # 設定のインポート
@@ -61,9 +62,25 @@ from src.utils.visualization import (
 )
 
 
-def main():
-    """メイン実行関数"""
+def main(test_mode=False, target_zones=None, target_horizons=None):
+    """
+    メイン実行関数
+
+    Parameters:
+    -----------
+    test_mode : bool
+        テストモードで実行するかどうか
+    target_zones : list of int, optional
+        処理対象のゾーン番号のリスト（None の場合は全てのゾーン）
+    target_horizons : list of int, optional
+        処理対象の予測ホライゾン（分）のリスト（None の場合は全てのホライゾン）
+    """
     print("# 空調システム室内温度予測モデル開発")
+
+    # テストモードの表示
+    if test_mode:
+        print(f"[テストモード] 対象ゾーン: {target_zones}, 対象ホライゾン: {target_horizons}")
+
     print("## データ読み込みと前処理")
 
     # データ読み込み
@@ -120,6 +137,26 @@ def main():
     existing_zones = sorted([int(col.split('_')[2]) for col in temp_cols if 'future' not in col])
     print(f"検出されたゾーン: {existing_zones}")
 
+    # テストモードの場合は対象ゾーンを絞り込む
+    if test_mode and target_zones:
+        target_zones = [z for z in target_zones if z in existing_zones]
+        if not target_zones:
+            print("警告: 指定されたゾーンが存在しません。全てのゾーンを使用します。")
+            target_zones = existing_zones
+        else:
+            existing_zones = target_zones
+            print(f"指定されたゾーンを使用します: {existing_zones}")
+
+    # テストモードの場合は対象ホライゾンを絞り込む
+    actual_horizons = HORIZONS
+    if test_mode and target_horizons:
+        target_horizons = [h for h in target_horizons if h in HORIZONS]
+        if not target_horizons:
+            print("警告: 指定されたホライゾンが設定に存在しません。全てのホライゾンを使用します。")
+        else:
+            actual_horizons = target_horizons
+            print(f"指定されたホライゾンを使用します: {actual_horizons}")
+
     # LMRのゾーン区分を表示
     print("ゾーン区分:")
     print(f"L系統ゾーン: {[z for z in L_ZONES if z in existing_zones]}")
@@ -129,7 +166,7 @@ def main():
     print("\n## 目的変数の作成（将来温度の予測）")
 
     # 目的変数の作成
-    df_with_targets = create_future_targets(df, existing_zones, HORIZONS, time_diff)
+    df_with_targets = create_future_targets(df, existing_zones, actual_horizons, time_diff)
     print(f"目的変数を追加したデータシェイプ: {df_with_targets.shape}")
 
     # 外れ値処理の実行
@@ -199,7 +236,7 @@ def main():
     df_with_targets, all_future_explanatory_features = create_future_explanatory_features(
         df_with_targets,
         future_explanatory_base_config,
-        HORIZONS,
+        actual_horizons,
         time_diff_seconds_val
     )
     print(f"{len(all_future_explanatory_features)}個の未来の説明変数を生成しました。")
@@ -283,7 +320,7 @@ def main():
 
         print(f"\nゾーン{zone_to_predict}({zone_system}系統)のモデル構築を開始します")
 
-        for horizon in HORIZONS:
+        for horizon in actual_horizons:
             target_col = f'sens_temp_{zone_to_predict}_future_{horizon}'
 
             # 目的変数が存在するか確認
@@ -374,12 +411,22 @@ def main():
             }
 
             # LAG依存度分析(15分後または最初のホライゾン)
-            if horizon == 15 or (horizon == HORIZONS[0] and 15 not in HORIZONS):
+            if horizon == 15 or (horizon == actual_horizons[0] and 15 not in actual_horizons):
                 lag_dependency[zone_to_predict] = analyze_lag_dependency(
                     feature_importance, zone_to_predict, horizon, zone_system
                 )
 
         all_results[zone_to_predict] = zone_results
+
+    # テストモードで結果がない場合はここで終了
+    if test_mode and not all_results:
+        print("\n警告: テストモードで結果が得られませんでした。モデルの構築に失敗したか、指定したゾーンとホライゾンの組み合わせに問題がある可能性があります。")
+        return {}, pd.DataFrame()
+
+    # LAG依存度分析が空の場合は可視化をスキップ
+    if not lag_dependency:
+        print("\n警告: LAG依存度分析の結果がありません。可視化をスキップします。")
+        return all_results, pd.DataFrame()
 
     # 視覚化
     print("\n## 結果の可視化")
@@ -399,12 +446,18 @@ def main():
         plot_feature_importance(feature_importance, zone, zone_system, horizon)
 
     # 予測ホライゾンごとに全ゾーンの散布図をプロット
-    for horizon in HORIZONS:
-        plot_scatter_actual_vs_predicted(all_results, horizon)
+    for horizon in actual_horizons:
+        # このホライゾンについての結果があるゾーンのみを使用
+        zones_with_horizon = [zone for zone, results in all_results.items() if horizon in results]
+        if zones_with_horizon:
+            plot_scatter_actual_vs_predicted(all_results, horizon)
 
     # 予測ホライゾンごとに全ゾーンの時系列プロット
-    for horizon in HORIZONS:
-        plot_time_series(all_results, horizon)
+    for horizon in actual_horizons:
+        # このホライゾンについての結果があるゾーンのみを使用
+        zones_with_horizon = [zone for zone, results in all_results.items() if horizon in results]
+        if zones_with_horizon:
+            plot_time_series(all_results, horizon)
 
     # LAG依存度分析結果をCSVにまとめる
     lag_dependency_df = pd.DataFrame([
@@ -432,55 +485,105 @@ def main():
         for zone, data in lag_dependency.items()
     ])
 
-    # LAG依存度分析の可視化
-    plot_lag_dependency_analysis(lag_dependency_df)
-
     # CSV保存
     lag_dependency_df.to_csv(os.path.join(OUTPUT_DIR, 'lag_dependency.csv'), index=False)
     print("LAG依存度分析結果をCSVファイルに保存しました")
 
     # 系統別の平均性能を計算
-    system_performance = pd.DataFrame([
-        {
-            'System': 'L',
-            'Zones': [z for z in L_ZONES if z in existing_zones],
-            'Avg_R2': np.mean([all_results[z][15]['r2'] if 15 in all_results[z] else all_results[z][list(all_results[z].keys())[0]]['r2']
-                             for z in L_ZONES if z in existing_zones and all_results.get(z)]),
-            'Avg_RMSE': np.mean([all_results[z][15]['rmse'] if 15 in all_results[z] else all_results[z][list(all_results[z].keys())[0]]['rmse']
-                               for z in L_ZONES if z in existing_zones and all_results.get(z)])
-        },
-        {
-            'System': 'M',
-            'Zones': [z for z in M_ZONES if z in existing_zones],
-            'Avg_R2': np.mean([all_results[z][15]['r2'] if 15 in all_results[z] else all_results[z][list(all_results[z].keys())[0]]['r2']
-                             for z in M_ZONES if z in existing_zones and all_results.get(z)]),
-            'Avg_RMSE': np.mean([all_results[z][15]['rmse'] if 15 in all_results[z] else all_results[z][list(all_results[z].keys())[0]]['rmse']
-                               for z in M_ZONES if z in existing_zones and all_results.get(z)])
-        },
-        {
-            'System': 'R',
-            'Zones': [z for z in R_ZONES if z in existing_zones],
-            'Avg_R2': np.mean([all_results[z][15]['r2'] if 15 in all_results[z] else all_results[z][list(all_results[z].keys())[0]]['r2']
-                             for z in R_ZONES if z in existing_zones and all_results.get(z)]),
-            'Avg_RMSE': np.mean([all_results[z][15]['rmse'] if 15 in all_results[z] else all_results[z][list(all_results[z].keys())[0]]['rmse']
-                               for z in R_ZONES if z in existing_zones and all_results.get(z)])
-        }
-    ])
-    system_performance.to_csv(os.path.join(OUTPUT_DIR, 'system_performance.csv'), index=False)
-    print("系統別の予測性能をCSVファイルに保存しました")
+    # テストモードでは対象ゾーンのみを使用
+    l_zones = [z for z in L_ZONES if z in existing_zones and all_results.get(z)]
+    m_zones = [z for z in M_ZONES if z in existing_zones and all_results.get(z)]
+    r_zones = [z for z in R_ZONES if z in existing_zones and all_results.get(z)]
+
+    system_performance_data = []
+
+    # L系統の性能
+    if l_zones:
+        l_r2_values = []
+        l_rmse_values = []
+        for z in l_zones:
+            if 15 in all_results[z]:
+                l_r2_values.append(all_results[z][15]['r2'])
+                l_rmse_values.append(all_results[z][15]['rmse'])
+            elif all_results[z]:  # 初めてのホライゾンを使用
+                l_r2_values.append(all_results[z][list(all_results[z].keys())[0]]['r2'])
+                l_rmse_values.append(all_results[z][list(all_results[z].keys())[0]]['rmse'])
+
+        if l_r2_values and l_rmse_values:
+            system_performance_data.append({
+                'System': 'L',
+                'Zones': l_zones,
+                'Avg_R2': np.mean(l_r2_values),
+                'Avg_RMSE': np.mean(l_rmse_values)
+            })
+
+    # M系統の性能
+    if m_zones:
+        m_r2_values = []
+        m_rmse_values = []
+        for z in m_zones:
+            if 15 in all_results[z]:
+                m_r2_values.append(all_results[z][15]['r2'])
+                m_rmse_values.append(all_results[z][15]['rmse'])
+            elif all_results[z]:  # 初めてのホライゾンを使用
+                m_r2_values.append(all_results[z][list(all_results[z].keys())[0]]['r2'])
+                m_rmse_values.append(all_results[z][list(all_results[z].keys())[0]]['rmse'])
+
+        if m_r2_values and m_rmse_values:
+            system_performance_data.append({
+                'System': 'M',
+                'Zones': m_zones,
+                'Avg_R2': np.mean(m_r2_values),
+                'Avg_RMSE': np.mean(m_rmse_values)
+            })
+
+    # R系統の性能
+    if r_zones:
+        r_r2_values = []
+        r_rmse_values = []
+        for z in r_zones:
+            if 15 in all_results[z]:
+                r_r2_values.append(all_results[z][15]['r2'])
+                r_rmse_values.append(all_results[z][15]['rmse'])
+            elif all_results[z]:  # 初めてのホライゾンを使用
+                r_r2_values.append(all_results[z][list(all_results[z].keys())[0]]['r2'])
+                r_rmse_values.append(all_results[z][list(all_results[z].keys())[0]]['rmse'])
+
+        if r_r2_values and r_rmse_values:
+            system_performance_data.append({
+                'System': 'R',
+                'Zones': r_zones,
+                'Avg_R2': np.mean(r_r2_values),
+                'Avg_RMSE': np.mean(r_rmse_values)
+            })
+
+    # 系統別性能をデータフレームに変換
+    system_performance = pd.DataFrame(system_performance_data)
+
+    if not system_performance.empty:
+        system_performance.to_csv(os.path.join(OUTPUT_DIR, 'system_performance.csv'), index=False)
+        print("系統別の予測性能をCSVファイルに保存しました")
 
     # 各ゾーンの結果をテーブルにまとめる
     summary_data = []
-    for zone, results in all_results.items():
-        if 15 in results:  # 15分後予測の結果があれば使用
+    for zone in existing_zones:
+        if zone not in all_results or not all_results[zone]:
+            continue  # このゾーンの結果がなければスキップ
+
+        results = all_results[zone]
+
+        # 15分後予測の結果があれば使用、なければ最初のホライゾン
+        if 15 in results:
             h = 15
-        elif results:  # なければ最初のホライゾンを使用
-            h = list(results.keys())[0]
         else:
-            continue
+            h = list(results.keys())[0]
 
         # ゾーンの系統を取得
         zone_system = results[h]['system']
+
+        # このゾーンのLAG依存度分析があるか確認
+        if zone not in lag_dependency:
+            continue
 
         summary_data.append({
             'ゾーン': zone,
@@ -497,11 +600,14 @@ def main():
         })
 
     summary_df = pd.DataFrame(summary_data)
-    print("各ゾーンの予測性能まとめ:")
-    print(summary_df)
 
-    summary_df.to_csv(os.path.join(OUTPUT_DIR, 'prediction_summary.csv'), index=False)
-    print("予測性能まとめをCSVファイルに保存しました")
+    if not summary_df.empty:
+        print("各ゾーンの予測性能まとめ:")
+        print(summary_df)
+        summary_df.to_csv(os.path.join(OUTPUT_DIR, 'prediction_summary.csv'), index=False)
+        print("予測性能まとめをCSVファイルに保存しました")
+    else:
+        print("警告: 予測結果がありません。まとめを作成できませんでした。")
 
     print("\n分析が完了しました。すべての結果はOutputディレクトリに保存されています。")
 
@@ -509,4 +615,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # コマンドライン引数の解析
+    parser = argparse.ArgumentParser(description='空調システム室内温度予測モデル開発')
+    parser.add_argument('--test', action='store_true', help='テストモードで実行する')
+    parser.add_argument('--zones', type=int, nargs='+', help='処理対象のゾーン番号のリスト（例: 4 5）')
+    parser.add_argument('--horizons', type=int, nargs='+', help='処理対象の予測ホライゾン（分）のリスト（例: 5 10）')
+
+    args = parser.parse_args()
+
+    # メイン関数を実行
+    main(
+        test_mode=args.test,
+        target_zones=args.zones,
+        target_horizons=args.horizons
+    )

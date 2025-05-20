@@ -200,104 +200,89 @@ def create_physics_based_features(df, zone_nums):
                 df_copy[f'temp_diff_to_outside_{zone}'] = df_copy[f'sens_temp_{zone}'] - df_copy[atmos_col]
                 created_features.append(f'temp_diff_to_outside_{zone}')
 
-                # 外気温変化による室内温度への影響率（断熱性の指標）
-                # 外気温変化に対する室内温度変化の比率
-                df_copy[f'insulation_index_{zone}'] = df_copy[f'sens_temp_{zone}'].diff() / df_copy[atmos_col].diff()
-                df_copy[f'insulation_index_{zone}'].replace([np.inf, -np.inf], np.nan, inplace=True)
-                df_copy[f'insulation_index_{zone}'].fillna(0, inplace=True)
-                created_features.append(f'insulation_index_{zone}')
+                # 外気温との温度差の変化率
+                df_copy[f'temp_diff_to_outside_rate_{zone}'] = df_copy[f'temp_diff_to_outside_{zone}'].diff()
+                created_features.append(f'temp_diff_to_outside_rate_{zone}')
 
-                # 熱交換率（温度差と温度変化率の積）
-                df_copy[f'heat_exchange_rate_{zone}'] = df_copy[f'temp_diff_to_outside_{zone}'].abs() * df_copy[f'temp_rate_{zone}']
-                created_features.append(f'heat_exchange_rate_{zone}')
-
-                # 時定数の推定（温度変化率に対する温度差の比 - 大きいほど断熱性が高い）
-                df_copy[f'thermal_time_constant_{zone}'] = df_copy[f'temp_diff_to_outside_{zone}'].abs() / df_copy[f'temp_rate_{zone}'].abs()
-                df_copy[f'thermal_time_constant_{zone}'].replace([np.inf, -np.inf], np.nan, inplace=True)
-                df_copy[f'thermal_time_constant_{zone}'].fillna(df_copy[f'thermal_time_constant_{zone}'].median(), inplace=True)
-                created_features.append(f'thermal_time_constant_{zone}')
+                # 外気温の変化率
+                df_copy[f'atmos_temp_rate'] = df_copy[atmos_col].diff()
+                created_features.append('atmos_temp_rate')
 
             # 1.4 日射量との関係
             if any('solar' in col and 'radiation' in col for col in df.columns):
                 solar_col = [col for col in df.columns if 'solar' in col and 'radiation' in col][0]
 
-                # 日射と温度変化の交互作用
-                df_copy[f'solar_temp_effect_{zone}'] = df_copy[solar_col] * df_copy[f'temp_rate_{zone}']
-                created_features.append(f'solar_temp_effect_{zone}')
+                # 日射量の変化率
+                df_copy[f'solar_radiation_rate'] = df_copy[solar_col].diff()
+                created_features.append('solar_radiation_rate')
 
-                # 日射変化による温度影響率
-                df_copy[f'solar_sensitivity_{zone}'] = df_copy[f'temp_rate_{zone}'] / df_copy[solar_col].diff()
-                df_copy[f'solar_sensitivity_{zone}'].replace([np.inf, -np.inf], np.nan, inplace=True)
-                df_copy[f'solar_sensitivity_{zone}'].fillna(0, inplace=True)
-                created_features.append(f'solar_sensitivity_{zone}')
+                # 日射量と温度変化の交互作用
+                df_copy[f'solar_temp_interaction_{zone}'] = df_copy[solar_col] * df_copy[f'temp_rate_{zone}']
+                created_features.append(f'solar_temp_interaction_{zone}')
 
-                # 日射による熱エネルギー蓄積の推定
-                # 過去数時間の日射の累積効果
-                for window in [3, 6, 12]:
-                    df_copy[f'cumulative_solar_effect_{zone}_{window}'] = df_copy[solar_col].rolling(window=window, min_periods=1).mean() * window
-                    created_features.append(f'cumulative_solar_effect_{zone}_{window}')
-
-    # 2. ゾーン間の熱的相互作用（隣接ゾーンとの関係）
-    for zone in zone_nums:
-        adjacent_zones = []
-        # 簡易的な隣接ゾーン推定（前後の番号をもつゾーンを隣接と見なす）
-        for adj_zone in [zone-1, zone+1]:
-            if adj_zone in zone_nums and f'sens_temp_{adj_zone}' in df.columns:
-                adjacent_zones.append(adj_zone)
-
-        for adj_zone in adjacent_zones:
-            # 隣接ゾーンとの温度差
-            df_copy[f'temp_diff_{zone}_to_{adj_zone}'] = df_copy[f'sens_temp_{zone}'] - df_copy[f'sens_temp_{adj_zone}']
-            created_features.append(f'temp_diff_{zone}_to_{adj_zone}')
-
-            # 隣接ゾーンとの熱交換率
-            df_copy[f'heat_transfer_{zone}_to_{adj_zone}'] = df_copy[f'temp_diff_{zone}_to_{adj_zone}'].abs() * df_copy[f'temp_rate_{zone}']
-            created_features.append(f'heat_transfer_{zone}_to_{adj_zone}')
-
-    print(f"作成した拡張物理モデルベースの特徴量: {len(created_features)}個")
+    print(f"作成した物理的特徴量: {len(created_features)}個")
     return df_copy, created_features
 
 
 def create_future_explanatory_features(df, base_features_config, horizons_minutes, time_diff_seconds):
     """
-    指定されたベース特徴量の将来値を生成する
+    制御可能なパラメータの未来値を説明変数として作成する関数
+    改善: データリークを防ぐため、制御可能なパラメータのみを使用
 
     Parameters:
     -----------
     df : DataFrame
         時系列インデックスを持つデータフレーム
-    base_features_config : list of dicts
-        各ベース特徴量の設定（例: [{'name': 'atmospheric　temperature', 'type': 'common'},
-                                    {'name': 'thermo_state_0', 'type': 'zone_specific', 'zone': 0}])
+    base_features_config : list of dict
+        基本特徴量の設定（例: [{'name': 'thermo_state_1', 'type': 'zone_specific', 'zone': 1}]）
     horizons_minutes : list
         予測ホライゾン（分）のリスト
-    time_diff_seconds : float
+    time_diff_seconds : int または float
         データのサンプリング間隔（秒）
 
     Returns:
     --------
     DataFrame
-        将来の特徴量を追加したデータフレーム
+        未来の説明変数を追加したデータフレーム
     list
-        生成された未来特徴量のカラム名リスト
+        作成された特徴量のリスト
     """
+    print("制御可能なパラメータの未来値を特徴量として作成中...")
     df_copy = df.copy()
-    created_future_features = []
+    created_features = []
 
-    for config in base_features_config:
-        base_col_name = config['name']
+    # 制御可能なパラメータのプレフィックスのリスト
+    controllable_params_prefixes = [
+        'thermo_state_',  # サーモスタット状態
+        'AC_mode_',       # 空調モード
+        'AC_valid_',      # 空調有効状態
+        'AC_set_'         # 設定温度
+    ]
 
-        if base_col_name not in df_copy.columns:
-            print(f"警告: ベース列 {base_col_name} がデータフレームに存在しません。スキップします。")
-            continue
+    # 各ホライゾンに対して
+    for horizon in horizons_minutes:
+        # シフト量を計算（データサンプリング間隔に基づく）
+        shift_steps = int(horizon * 60 / time_diff_seconds)
 
-        for horizon in horizons_minutes:
-            shift_periods = int(horizon * 60 / time_diff_seconds) # 分を秒に変換してからシフト数を計算
-            future_col_name = f"{base_col_name}_future_{horizon}"
-            df_copy[future_col_name] = df_copy[base_col_name].shift(-shift_periods)
-            created_future_features.append(future_col_name)
+        # 各特徴量の設定を処理
+        for config in base_features_config:
+            base_col_name = config['name']
 
-    return df_copy, list(set(created_future_features)) # 重複除去して返す
+            # 特徴量がデータフレームに存在するか確認
+            if base_col_name not in df_copy.columns:
+                continue
+
+            # 制御可能なパラメータかどうかを確認
+            is_controllable = any(base_col_name.startswith(prefix) for prefix in controllable_params_prefixes)
+
+            # 制御可能なパラメータのみ未来値を作成
+            if is_controllable:
+                future_col = f"{base_col_name}_future_{horizon}"
+                df_copy[future_col] = df_copy[base_col_name].shift(-shift_steps)
+                created_features.append(future_col)
+
+    print(f"作成した未来の説明変数: {len(created_features)}個")
+    return df_copy, created_features
 
 
 def create_thermo_state_features(df, zone_nums):

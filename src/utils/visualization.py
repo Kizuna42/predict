@@ -284,9 +284,10 @@ def plot_time_series(results_dict, horizon, points=100, save=True):
         return None
 
 
-def plot_lag_dependency_analysis(lag_dependency_df, save=True):
+def plot_lag_dependency_analysis(lag_dependency_df, save=False):
     """
     LAG依存度分析結果を視覚化する関数
+    注意: グラフ出力は無効化されています
 
     Parameters:
     -----------
@@ -300,58 +301,185 @@ def plot_lag_dependency_analysis(lag_dependency_df, save=True):
     list
         プロットしたFigureオブジェクトのリスト
     """
-    figures = []
+    # グラフ保存は無効化
+    save = False
 
-    # 1. 時系列依存度とその内訳
-    fig1, ax1 = plt.subplots(figsize=(12, 6))
+    # ダミーの空のリストを返す（出力なし）
+    print("LAG依存度の可視化出力は無効化されています")
+    return []
 
-    # ゾーン番号でソート
-    sorted_df = lag_dependency_df.sort_values('ゾーン')
 
-    # 時系列依存度とその内訳をプロット
-    x = np.arange(len(sorted_df))
-    width = 0.2
+def plot_physical_validity_analysis(results_dict, horizon, save=True):
+    """
+    物理的妥当性の分析結果を可視化する関数
 
-    ax1.bar(x - width, sorted_df['現在温度依存度(%)'], width, label='現在温度')
-    ax1.bar(x, sorted_df['LAG温度依存度(%)'], width, label='LAG温度')
-    ax1.bar(x + width, sorted_df['移動平均温度依存度(%)'], width, label='移動平均温度')
+    Parameters:
+    -----------
+    results_dict : dict
+        ゾーンごとの結果を含む辞書
+    horizon : int
+        予測ホライゾン（分）
+    save : bool, optional
+        グラフを保存するかどうか
 
-    ax1.set_xlabel('ゾーン')
-    ax1.set_ylabel('依存度 (%)')
-    ax1.set_title('温度時系列依存度の内訳')
-    ax1.set_xticks(x)
-    ax1.set_xticklabels([f"{z}\n({s}系統)" for z, s in zip(sorted_df['ゾーン'], sorted_df['系統'])])
-    ax1.legend()
+    Returns:
+    --------
+    matplotlib.figure.Figure
+        プロットしたFigureオブジェクト
+    """
+    # 予測ホライゾンに対応するゾーンとデータを収集
+    zones_with_data = []
+    for zone, zone_results in results_dict.items():
+        if horizon in zone_results:
+            zones_with_data.append(zone)
 
-    plt.tight_layout()
+    if not zones_with_data:
+        print(f"警告: {horizon}分後予測のデータがありません。スキップします。")
+        return None
+
+    # サブプロットの行数と列数を計算
+    n_zones = len(zones_with_data)
+    n_cols = min(3, n_zones)
+    n_rows = math.ceil(n_zones / n_cols)
+
+    # 物理的妥当性の分析結果を可視化
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(15, n_rows * 5), squeeze=False)
+    axs = axs.flatten()
+
+    for i, zone in enumerate(zones_with_data):
+        results = results_dict[zone][horizon]
+        y_test = results['y_test']
+        y_pred = results['y_pred']
+        ac_state = results['ac_state']
+        ac_mode = results['ac_mode']
+        zone_system = results['system']
+
+        # 温度変化量の計算
+        temp_change_true = y_test.diff()
+        temp_change_pred = y_pred.diff()
+
+        # 冷房時、暖房時、空調OFF時のマスク
+        cooling_mask = (ac_state == 1) & (ac_mode == 0)
+        heating_mask = (ac_state == 1) & (ac_mode == 1)
+        off_mask = (ac_state == 0)
+
+        # 散布図の作成
+        axs[i].scatter(temp_change_true[cooling_mask], temp_change_pred[cooling_mask],
+                      alpha=0.5, label='冷房時', color='blue')
+        axs[i].scatter(temp_change_true[heating_mask], temp_change_pred[heating_mask],
+                      alpha=0.5, label='暖房時', color='red')
+        axs[i].scatter(temp_change_true[off_mask], temp_change_pred[off_mask],
+                      alpha=0.5, label='空調OFF時', color='gray')
+
+        # 理想的な予測の線（y=x）
+        min_change = min(temp_change_true.min(), temp_change_pred.min())
+        max_change = max(temp_change_true.max(), temp_change_pred.max())
+        axs[i].plot([min_change, max_change], [min_change, max_change], 'k--', label='理想的な予測')
+
+        # 冷房時と暖房時の期待される変化の領域
+        axs[i].axhspan(min_change, 0, alpha=0.1, color='blue', label='冷房時の期待領域')
+        axs[i].axhspan(0, max_change, alpha=0.1, color='red', label='暖房時の期待領域')
+
+        axs[i].set_title(f'Zone {zone} - {zone_system} System')
+        axs[i].set_xlabel('実測の温度変化')
+        axs[i].set_ylabel('予測の温度変化')
+        axs[i].grid(True)
+        axs[i].legend()
+
+    # 使わないサブプロットを非表示
+    for j in range(i+1, len(axs)):
+        fig.delaxes(axs[j])
+
+    fig.suptitle(f'{horizon}分後予測の物理的妥当性分析', fontsize=16)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
     if save:
-        output_path = os.path.join(OUTPUT_DIR, 'lag_dependency_timeseries.png')
+        output_path = os.path.join(OUTPUT_DIR, f'physical_validity_horizon_{horizon}.png')
         plt.savefig(output_path)
-        print(f"時系列依存度分析グラフを保存しました: {output_path}")
+        print(f"{horizon}分後予測の物理的妥当性分析グラフを保存しました: {output_path}")
 
-    figures.append(fig1)
+    return fig
 
-    # 2. 大カテゴリ分析
-    fig2, ax2 = plt.subplots(figsize=(12, 6))
 
-    # 大カテゴリの依存度をプロット
-    ax2.bar(x - width, sorted_df['過去時系列合計(%)'], width, label='過去時系列')
-    ax2.bar(x, sorted_df['現在非センサー合計(%)'], width, label='現在非センサー')
-    ax2.bar(x + width, sorted_df['未来説明変数合計(%)'], width, label='未来説明変数')
+def plot_response_delay_analysis(results_dict, horizon, save=True):
+    """
+    予測の応答遅れを分析する関数
 
-    ax2.set_xlabel('ゾーン')
-    ax2.set_ylabel('依存度 (%)')
-    ax2.set_title('大カテゴリ別予測依存度')
-    ax2.set_xticks(x)
-    ax2.set_xticklabels([f"{z}\n({s}系統)" for z, s in zip(sorted_df['ゾーン'], sorted_df['系統'])])
-    ax2.legend()
+    Parameters:
+    -----------
+    results_dict : dict
+        ゾーンごとの結果を含む辞書
+    horizon : int
+        予測ホライゾン（分）
+    save : bool, optional
+        グラフを保存するかどうか
 
-    plt.tight_layout()
+    Returns:
+    --------
+    matplotlib.figure.Figure
+        プロットしたFigureオブジェクト
+    """
+    # 予測ホライゾンに対応するゾーンとデータを収集
+    zones_with_data = []
+    for zone, zone_results in results_dict.items():
+        if horizon in zone_results:
+            zones_with_data.append(zone)
+
+    if not zones_with_data:
+        print(f"警告: {horizon}分後予測のデータがありません。スキップします。")
+        return None
+
+    # サブプロットの行数と列数を計算
+    n_zones = len(zones_with_data)
+    n_cols = min(3, n_zones)
+    n_rows = math.ceil(n_zones / n_cols)
+
+    # 応答遅れの分析結果を可視化
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(15, n_rows * 5), squeeze=False)
+    axs = axs.flatten()
+
+    for i, zone in enumerate(zones_with_data):
+        results = results_dict[zone][horizon]
+        y_test = results['y_test']
+        y_pred = results['y_pred']
+        ac_state = results['ac_state']
+        zone_system = results['system']
+
+        # 空調状態変化の検出
+        ac_state_change = ac_state.diff().abs()
+        change_indices = ac_state_change[ac_state_change == 1].index
+
+        # 状態変化後の温度変化をプロット
+        for idx in change_indices[:5]:  # 最初の5つの状態変化のみ表示
+            # 状態変化前後のデータを取得
+            start_idx = idx - pd.Timedelta(minutes=5)
+            end_idx = idx + pd.Timedelta(minutes=horizon)
+            mask = (y_test.index >= start_idx) & (y_test.index <= end_idx)
+
+            # 時間を相対時間（分）に変換
+            relative_time = (y_test.index[mask] - idx).total_seconds() / 60
+
+            # 実測値と予測値をプロット
+            axs[i].plot(relative_time, y_test[mask], 'b-', label='実測値' if idx == change_indices[0] else "")
+            axs[i].plot(relative_time, y_pred[mask], 'r--', label='予測値' if idx == change_indices[0] else "")
+
+        axs[i].axvline(x=0, color='k', linestyle='--', label='状態変化時点')
+        axs[i].set_title(f'Zone {zone} - {zone_system} System')
+        axs[i].set_xlabel('状態変化からの経過時間（分）')
+        axs[i].set_ylabel('温度（℃）')
+        axs[i].grid(True)
+        axs[i].legend()
+
+    # 使わないサブプロットを非表示
+    for j in range(i+1, len(axs)):
+        fig.delaxes(axs[j])
+
+    fig.suptitle(f'{horizon}分後予測の応答遅れ分析', fontsize=16)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
     if save:
-        output_path = os.path.join(OUTPUT_DIR, 'lag_dependency_categories.png')
+        output_path = os.path.join(OUTPUT_DIR, f'response_delay_horizon_{horizon}.png')
         plt.savefig(output_path)
-        print(f"カテゴリ別依存度分析グラフを保存しました: {output_path}")
+        print(f"{horizon}分後予測の応答遅れ分析グラフを保存しました: {output_path}")
 
-    figures.append(fig2)
-
-    return figures
+    return fig
