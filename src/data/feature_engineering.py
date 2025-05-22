@@ -363,6 +363,7 @@ def select_important_features(X_train, y_train, X_test, feature_names, threshold
     LightGBMを使った特徴量選択により、重要な特徴量のみを選択
     閾値を変更：物理特徴量を優先的に選択するため
     修正: 特徴量名の重複を排除する処理を追加
+    さらに修正: 警告メッセージを抑制
 
     Parameters:
     -----------
@@ -432,7 +433,8 @@ def select_important_features(X_train, y_train, X_test, feature_names, threshold
         reg_alpha=0.01,
         reg_lambda=0.05,
         random_state=42,
-        importance_type='gain'  # 利得ベースの重要度を使用
+        importance_type='gain',  # 利得ベースの重要度を使用
+        verbose=-1  # 警告メッセージを抑制
     )
 
     # SelectFromModelで重要な特徴量を選択
@@ -451,17 +453,22 @@ def select_important_features(X_train, y_train, X_test, feature_names, threshold
     selector = SelectFromModel(selection_model, threshold=selector_threshold)
 
     try:
-        # 物理特徴量を優先して選択するために重みを付ける
-        # 温度変化の傾向と関連する特徴量
-        temp_changes = y_train.diff().abs().fillna(0)
-        weights = 1 + temp_changes / temp_changes.mean()
+        # 警告を抑制
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
 
-        # スパイクの影響を制限
-        max_weight = 3.0  # 最大ウェイト値を制限
-        weights = weights.clip(upper=max_weight)
+            # 物理特徴量を優先して選択するために重みを付ける
+            # 温度変化の傾向と関連する特徴量
+            temp_changes = y_train.diff().abs().fillna(0)
+            weights = 1 + temp_changes / temp_changes.mean()
 
-        # モデルをトレーニング
-        selector.fit(X_train, y_train, sample_weight=weights)
+            # スパイクの影響を制限
+            max_weight = 3.0  # 最大ウェイト値を制限
+            weights = weights.clip(upper=max_weight)
+
+            # モデルをトレーニング
+            selector.fit(X_train, y_train, sample_weight=weights)
 
         # 選択された特徴量のマスクを取得
         feature_mask = selector.get_support()
@@ -551,6 +558,9 @@ def create_polynomial_features(X_train, X_test, base_features, degree=2):
     X_train_poly, X_test_poly : 多項式特徴量を追加したデータフレーム
     poly_feature_names : 生成された多項式特徴量の名前リスト
     """
+    # 警告を抑制
+    import warnings
+
     # 実際に存在する特徴量のみをフィルタリング
     available_columns = X_train.columns.tolist()
     filtered_base_features = []
@@ -585,11 +595,15 @@ def create_polynomial_features(X_train, X_test, base_features, degree=2):
     poly = PolynomialFeatures(degree=degree, interaction_only=True, include_bias=False)
 
     try:
-        # トレーニングデータに基づいて変換
-        X_train_poly_array = poly.fit_transform(X_train_base)
+        # 警告を抑制しながら多項式特徴量を生成
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
 
-        # テストデータには同じ変換を適用
-        X_test_poly_array = poly.transform(X_test_base)
+            # トレーニングデータに基づいて変換
+            X_train_poly_array = poly.fit_transform(X_train_base)
+
+            # テストデータには同じ変換を適用
+            X_test_poly_array = poly.transform(X_test_base)
 
         # 特徴量名の生成
         feature_names = poly.get_feature_names_out(filtered_base_features)

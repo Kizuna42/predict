@@ -53,26 +53,34 @@ def train_physics_guided_model(X_train, y_train, params=None):
 
     # パラメータが指定されていない場合は、デフォルト値を使用
     if params is None:
-        params = LGBM_PARAMS
+        params = LGBM_PARAMS.copy()  # コピーを作成して元の設定を変更しないようにする
+
+    # 警告メッセージを抑制するため、verboseを-1に設定
+    params['verbose'] = -1
 
     # 物理モデルに適したパラメータを使用
     lgb_model = lgb.LGBMRegressor(**params)
 
     try:
-        # クラス重み付け：急激な温度変化を重視
-        if 'weight' in y_train.index.names:
-            print("サンプル重み付けを使用します")
-            lgb_model.fit(X_train, y_train)
-        else:
-            # 急激な温度変化に対する重み付け
-            temp_changes = y_train.diff().abs().fillna(0)
-            weights = 1 + temp_changes / temp_changes.mean()
+        # Pythonの標準警告を一時的に抑制
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
 
-            # スパイクの影響を制限
-            max_weight = 3.0  # 最大ウェイト値を制限
-            weights = weights.clip(upper=max_weight)
+            # クラス重み付け：急激な温度変化を重視
+            if 'weight' in y_train.index.names:
+                print("サンプル重み付けを使用します")
+                lgb_model.fit(X_train, y_train)
+            else:
+                # 急激な温度変化に対する重み付け
+                temp_changes = y_train.diff().abs().fillna(0)
+                weights = 1 + temp_changes / temp_changes.mean()
 
-            lgb_model.fit(X_train, y_train, sample_weight=weights)
+                # スパイクの影響を制限
+                max_weight = 3.0  # 最大ウェイト値を制限
+                weights = weights.clip(upper=max_weight)
+
+                lgb_model.fit(X_train, y_train, sample_weight=weights)
 
         return lgb_model
 
@@ -92,9 +100,12 @@ def train_physics_guided_model(X_train, y_train, params=None):
                 n_estimators=100,
                 learning_rate=0.05,
                 max_depth=5,
-                random_state=42
+                random_state=42,
+                verbose=-1  # 警告を抑制
             )
-            simple_model.fit(X_train[basic_features], y_train)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                simple_model.fit(X_train[basic_features], y_train)
             return simple_model
         else:
             # すべての対処が失敗した場合はダミーモデルを返す
