@@ -13,10 +13,11 @@ from sklearn.feature_selection import SelectFromModel
 import lightgbm as lgb
 
 
-def create_lag_features(df, zone_nums, lag_periods=[6, 12]):
+def create_lag_features(df, zone_nums, lag_periods=[12, 24]):
     """
     各ゾーンの過去の温度と湿度をLAG特徴量として作成
-    修正: LAGに過度に依存しないように、直近の短期LAGを削除し長期LAGを使用
+    修正: LAGに過度に依存しないように、直近の短期LAGを削除し、より長期のLAGのみを使用
+    上司のアドバイスに従い、生データLAG特徴量を減らし、変化率や物理量の特徴量を強化
 
     Parameters:
     -----------
@@ -43,17 +44,26 @@ def create_lag_features(df, zone_nums, lag_periods=[6, 12]):
         if f'sens_temp_{zone}' in df.columns:
             # 温度変化量（一定期間での温度差）- 物理的意味を持つ特徴量
             for lag in lag_periods:
-                # 短期的な変化率（直前からの変化ではなく、より長期の変化を捉える）
+                # 長期的な変化率（直前からの変化ではなく、より長期の変化を捉える）
                 df_copy[f'temp_change_rate_{zone}_{lag}'] = (df_copy[f'sens_temp_{zone}'] - df_copy[f'sens_temp_{zone}'].shift(lag)) / lag
                 created_features.append(f'temp_change_rate_{zone}_{lag}')
+
+                # 長期的な変化率の加速度（変化の変化）
+                df_copy[f'temp_change_accel_{zone}_{lag}'] = df_copy[f'temp_change_rate_{zone}_{lag}'].diff()
+                created_features.append(f'temp_change_accel_{zone}_{lag}')
 
             # 温度の加速度（変化率の変化）- 物理的なパラメータ
             df_copy[f'temp_acceleration_{zone}'] = df_copy[f'sens_temp_{zone}'].diff().diff()
             created_features.append(f'temp_acceleration_{zone}')
 
             # 温度変化のトレンド（上昇/下降の持続性）- 長期的なトレンドを捉える
-            df_copy[f'temp_trend_{zone}_long'] = np.sign(df_copy[f'sens_temp_{zone}'].diff(6))
+            df_copy[f'temp_trend_{zone}_long'] = np.sign(df_copy[f'sens_temp_{zone}'].diff(12))
             created_features.append(f'temp_trend_{zone}_long')
+
+            # 温度の振動性（変化方向の反転頻度）- 制御系の安定性指標
+            temp_changes = df_copy[f'sens_temp_{zone}'].diff()
+            df_copy[f'temp_oscillation_{zone}'] = ((temp_changes.shift(1) * temp_changes) < 0).astype(int).rolling(window=24, min_periods=1).mean()
+            created_features.append(f'temp_oscillation_{zone}')
 
     print(f"作成した物理ベースの特徴量: {len(created_features)}個")
     return df_copy, created_features
@@ -193,9 +203,10 @@ def create_physics_based_features(df, zone_nums):
                 created_features.append(f'natural_temp_drift_{zone}')
 
             # 1.3 外気温との関係
-            if any('atmospheric' in col and 'temperature' in col for col in df.columns):
-                atmos_col = [col for col in df.columns if 'atmospheric' in col and 'temperature' in col][0]
-
+            # atmospheric temperatureのカラム名を部分一致で検索
+            atmos_cols = [col for col in df.columns if 'atmospheric' in col.lower() and 'temperature' in col.lower()]
+            if atmos_cols:
+                atmos_col = atmos_cols[0]
                 # 外気温との温度差（熱伝導の駆動力）
                 df_copy[f'temp_diff_to_outside_{zone}'] = df_copy[f'sens_temp_{zone}'] - df_copy[atmos_col]
                 created_features.append(f'temp_diff_to_outside_{zone}')
@@ -209,9 +220,10 @@ def create_physics_based_features(df, zone_nums):
                 created_features.append('atmos_temp_rate')
 
             # 1.4 日射量との関係
-            if any('solar' in col and 'radiation' in col for col in df.columns):
-                solar_col = [col for col in df.columns if 'solar' in col and 'radiation' in col][0]
-
+            # solar radiationのカラム名を部分一致で検索
+            solar_cols = [col for col in df.columns if 'solar' in col.lower() and 'radiation' in col.lower()]
+            if solar_cols:
+                solar_col = solar_cols[0]
                 # 日射量の変化率
                 df_copy[f'solar_radiation_rate'] = df_copy[solar_col].diff()
                 created_features.append('solar_radiation_rate')
@@ -224,12 +236,11 @@ def create_physics_based_features(df, zone_nums):
     return df_copy, created_features
 
 
-def create_future_explanatory_features(df, base_features_config, horizons_minutes, time_diff_seconds):
+def create_future_explanatory_features(df, base_features_config, horizons_minutes, time_diff_seconds, is_prediction_mode=False):
     """
-    制御可能なパラメータの未来値を説明変数として作成する関数
-    改善:
-    1. データリークを防ぐため、制御可能なパラメータのみを使用
-    2. 目的変数と同じシフト量を適用（15分先予測なら説明変数も15分先を使用）
+    未来の説明変数を作成する関数
+    is_prediction_mode=Trueの場合は、プレースホルダーを作成（予測時用）
+    修正: カラム名の特殊文字に対応
 
     Parameters:
     -----------
@@ -241,6 +252,8 @@ def create_future_explanatory_features(df, base_features_config, horizons_minute
         予測ホライゾン（分）のリスト
     time_diff_seconds : int または float
         データのサンプリング間隔（秒）
+    is_prediction_mode : bool
+        予測モード時はTrueを指定（未来値はプレースホルダーとなる）
 
     Returns:
     --------
@@ -253,47 +266,46 @@ def create_future_explanatory_features(df, base_features_config, horizons_minute
     df_copy = df.copy()
     created_features = []
 
-    # 上司のアドバイスに基づいて制御可能なパラメータのプレフィックスのリスト
-    controllable_params_prefixes = [
-        'thermo_state_',  # サーモスタット状態（使用可）
-        'AC_mode_',       # 空調モード（使用可）
-        'AC_valid_',      # 空調有効状態（使用可）
-    ]
+    # 制御可能なパラメータと環境データの前缀
+    controllable_params_prefixes = ['AC_', 'thermo_state']
+    environmental_prefixes = ['atmospheric', 'solar', 'radiation']
 
-    # 環境データのプレフィックス（検討可能）
-    environmental_prefixes = [
-        'atmospheric',    # 外気温
-        'total solar',    # 日射量
-    ]
+    # 利用可能なカラム名を取得
+    available_columns = df_copy.columns.tolist()
 
-    # 各ホライゾンに対して
     for horizon in horizons_minutes:
-        # シフト量を計算（データサンプリング間隔に基づく）
+        # シフト量を計算
         shift_steps = int(horizon * 60 / time_diff_seconds)
 
-        # 各特徴量の設定を処理
         for config in base_features_config:
             base_col_name = config['name']
 
-            # 特徴量がデータフレームに存在するか確認
-            if base_col_name not in df_copy.columns:
-                continue
+            # カラムが存在するか確認
+            if base_col_name not in available_columns:
+                # 部分一致で検索を試みる
+                matching_cols = [col for col in available_columns
+                               if all(keyword.lower() in col.lower() for keyword in base_col_name.split())]
+                if matching_cols:
+                    base_col_name = matching_cols[0]
+                    print(f"カラム名を置換しました: '{config['name']}' → '{base_col_name}'")
+                else:
+                    print(f"警告: カラム '{config['name']}' が見つかりません。このカラムの未来値はスキップします。")
+                    continue
 
-            # 制御可能なパラメータかどうかを確認
             is_controllable = any(base_col_name.startswith(prefix) for prefix in controllable_params_prefixes)
-            # 環境データかどうかを確認
             is_environmental = any(prefix in base_col_name.lower() for prefix in environmental_prefixes)
 
-            # 制御可能なパラメータと環境データのみ未来値を作成
             if is_controllable or is_environmental:
                 future_col = f"{base_col_name}_future_{horizon}"
-                df_copy[future_col] = df_copy[base_col_name].shift(-shift_steps)  # 同じシフト量を適用
-                created_features.append(future_col)
 
-                if is_controllable:
-                    print(f"制御可能パラメータの未来値を作成: {future_col}")
-                if is_environmental:
-                    print(f"環境データの未来値を作成: {future_col}")
+                if not is_prediction_mode:
+                    # 学習時: 実際の未来値を使用
+                    df_copy[future_col] = df_copy[base_col_name].shift(-shift_steps)
+                else:
+                    # 予測時: プレースホルダーを作成（NaNまたは0で初期化）
+                    df_copy[future_col] = np.nan
+
+                created_features.append(future_col)
 
     print(f"作成した未来の説明変数: {len(created_features)}個")
     return df_copy, created_features
@@ -350,6 +362,7 @@ def select_important_features(X_train, y_train, X_test, feature_names, threshold
     """
     LightGBMを使った特徴量選択により、重要な特徴量のみを選択
     閾値を変更：物理特徴量を優先的に選択するため
+    修正: 特徴量名の重複を排除する処理を追加
 
     Parameters:
     -----------
@@ -369,6 +382,45 @@ def select_important_features(X_train, y_train, X_test, feature_names, threshold
     X_train_selected, X_test_selected : 選択された特徴量のみを含むデータフレーム
     selected_features : 選択された特徴量名のリスト
     """
+    # 特徴量名に重複がないか確認し、重複があれば警告して排除
+    unique_feature_names = []
+    seen_names = set()
+    duplicates = []
+
+    for feature in feature_names:
+        if feature in seen_names:
+            duplicates.append(feature)
+        else:
+            unique_feature_names.append(feature)
+            seen_names.add(feature)
+
+    if duplicates:
+        print(f"警告: 重複する特徴量名を検出し排除しました: {len(duplicates)}個")
+        # 必要に応じて最初の数個だけ表示
+        if len(duplicates) > 5:
+            print(f"例: {duplicates[:5]} など...")
+        else:
+            print(f"重複特徴量: {duplicates}")
+        feature_names = unique_feature_names
+
+    # 列名に重複がないか確認（データフレームの列名も確認）
+    if len(X_train.columns) != len(set(X_train.columns)):
+        print("警告: データフレームの列名に重複があります。重複を排除します。")
+        # 重複のない新しいデータフレームを作成
+        unique_cols = []
+        seen_cols = set()
+        for col in X_train.columns:
+            if col not in seen_cols:
+                unique_cols.append(col)
+                seen_cols.add(col)
+
+        # 重複のない列だけを使用
+        X_train = X_train[unique_cols]
+        X_test = X_test[unique_cols]
+
+        # feature_namesも更新
+        feature_names = [f for f in feature_names if f in unique_cols]
+
     # 特徴量選択用の軽量なモデル
     selection_model = lgb.LGBMRegressor(
         n_estimators=100,
@@ -414,7 +466,7 @@ def select_important_features(X_train, y_train, X_test, feature_names, threshold
         # 選択された特徴量のマスクを取得
         feature_mask = selector.get_support()
         selected_feature_indices = [i for i, selected in enumerate(feature_mask) if selected]
-        selected_features = [feature_names[i] for i in selected_feature_indices]
+        selected_features = [feature_names[i] for i in selected_feature_indices if i < len(feature_names)]
 
         # LAG特徴量の依存度を減らす追加処理
         # すべての選択された特徴量の中でLAG特徴量の割合を確認
@@ -456,8 +508,14 @@ def select_important_features(X_train, y_train, X_test, feature_names, threshold
                 print(f"LAG特徴量の依存度を下げるため、特徴量を調整しました: {len(selected_features)}個")
 
         # 選択された特徴量でデータセットをフィルタリング
-        X_train_selected = X_train.loc[:, feature_mask]
-        X_test_selected = X_test.loc[:, feature_mask]
+        # 選択された特徴量名が実際にデータフレームに存在することを確認
+        existing_features = [f for f in selected_features if f in X_train.columns]
+        if len(existing_features) < len(selected_features):
+            print(f"警告: {len(selected_features) - len(existing_features)}個の選択特徴量がデータフレームに存在しません")
+            selected_features = existing_features
+
+        X_train_selected = X_train[selected_features]
+        X_test_selected = X_test[selected_features]
 
         print(f"特徴量選択により{len(selected_features)}/{len(feature_names)}個の特徴量を選択しました")
 
@@ -465,5 +523,123 @@ def select_important_features(X_train, y_train, X_test, feature_names, threshold
 
     except Exception as e:
         print(f"特徴量選択中にエラーが発生しました: {e}")
-        # エラーの場合は全特徴量を返す
-        return X_train, X_test, feature_names
+        # エラーの場合は重複のない特徴量のみを返す
+        unique_cols = list(dict.fromkeys(X_train.columns))
+        print(f"エラーのため特徴量選択をスキップし、{len(unique_cols)}個の重複のない特徴量を使用します")
+        return X_train[unique_cols], X_test[unique_cols], unique_cols
+
+
+def create_polynomial_features(X_train, X_test, base_features, degree=2):
+    """
+    多項式特徴量を生成する関数
+    修正: 特徴量の存在確認を追加し、カラム名の問題を解決
+    さらに修正: 重複特徴量名を防止する処理を追加
+
+    Parameters:
+    -----------
+    X_train : DataFrame
+        トレーニングデータ
+    X_test : DataFrame
+        テストデータ
+    base_features : list
+        多項式特徴量の基となる特徴量リスト
+    degree : int
+        多項式の次数
+
+    Returns:
+    --------
+    X_train_poly, X_test_poly : 多項式特徴量を追加したデータフレーム
+    poly_feature_names : 生成された多項式特徴量の名前リスト
+    """
+    # 実際に存在する特徴量のみをフィルタリング
+    available_columns = X_train.columns.tolist()
+    filtered_base_features = []
+
+    for feature in base_features:
+        # 特徴量が存在するか確認
+        if feature in available_columns:
+            filtered_base_features.append(feature)
+        else:
+            # 全角スペースなどの問題がある可能性を考慮
+            # 部分一致でも確認
+            matching_columns = [col for col in available_columns if feature.replace('\\u3000', '　').strip() in col.strip()]
+            if matching_columns:
+                filtered_base_features.append(matching_columns[0])
+            else:
+                print(f"警告: 特徴量 '{feature}' はデータセットに存在しないため、多項式特徴量生成から除外します")
+
+    # 特徴量が存在しない場合は処理をスキップ
+    if len(filtered_base_features) == 0:
+        print("多項式特徴量の生成をスキップします: 有効な特徴量がありません")
+        return X_train, X_test, []
+
+    # 特徴量名が重複しないように、基底特徴量の一意性を確保
+    filtered_base_features = list(dict.fromkeys(filtered_base_features))
+    print(f"多項式特徴量生成のため、{len(filtered_base_features)}/{len(base_features)}個の有効な特徴量を使用します")
+
+    # ベース特徴量のみを抽出
+    X_train_base = X_train[filtered_base_features].copy()
+    X_test_base = X_test[filtered_base_features].copy()
+
+    # 多項式特徴量の生成
+    poly = PolynomialFeatures(degree=degree, interaction_only=True, include_bias=False)
+
+    try:
+        # トレーニングデータに基づいて変換
+        X_train_poly_array = poly.fit_transform(X_train_base)
+
+        # テストデータには同じ変換を適用
+        X_test_poly_array = poly.transform(X_test_base)
+
+        # 特徴量名の生成
+        feature_names = poly.get_feature_names_out(filtered_base_features)
+
+        # 元の特徴量名を除外（1次の項は元データに含まれる）
+        poly_feature_names = [name for name in feature_names if ' ' in name]
+
+        # 重複する特徴量名をチェックして一意にする
+        unique_poly_feature_names = []
+        seen_names = set()
+
+        for i, name in enumerate(poly_feature_names):
+            if name in seen_names:
+                # 重複する名前には連番を付ける
+                base_name = name
+                counter = 1
+                new_name = f"{base_name}_{counter}"
+                while new_name in seen_names:
+                    counter += 1
+                    new_name = f"{base_name}_{counter}"
+
+                print(f"重複する特徴量名を検出: '{name}' → '{new_name}'に変更しました")
+                unique_poly_feature_names.append(new_name)
+                seen_names.add(new_name)
+            else:
+                unique_poly_feature_names.append(name)
+                seen_names.add(name)
+
+        # データフレームに変換して結合
+        X_train_poly_df = pd.DataFrame(
+            X_train_poly_array[:, len(filtered_base_features):],
+            columns=unique_poly_feature_names,
+            index=X_train.index
+        )
+
+        X_test_poly_df = pd.DataFrame(
+            X_test_poly_array[:, len(filtered_base_features):],
+            columns=unique_poly_feature_names,
+            index=X_test.index
+        )
+
+        # 元のデータフレームと結合
+        X_train_with_poly = pd.concat([X_train, X_train_poly_df], axis=1)
+        X_test_with_poly = pd.concat([X_test, X_test_poly_df], axis=1)
+
+        print(f"多項式特徴量を{len(unique_poly_feature_names)}個生成しました")
+
+        return X_train_with_poly, X_test_with_poly, unique_poly_feature_names
+
+    except Exception as e:
+        print(f"多項式特徴量生成中にエラーが発生しました: {e}")
+        # エラーの場合は元のデータフレームをそのまま返す
+        return X_train, X_test, []

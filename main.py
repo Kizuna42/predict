@@ -4,7 +4,6 @@
 """
 空調システム室内温度予測モデル開発
 モジュール化されたコードによる実装
-上司のアドバイスに従って修正済み
 """
 
 import pandas as pd
@@ -12,7 +11,7 @@ import numpy as np
 import os
 import pickle
 import warnings
-import argparse  # 追加: コマンドライン引数のパーサー
+import argparse
 warnings.filterwarnings('ignore')
 
 # 設定のインポート
@@ -37,7 +36,8 @@ from src.data.feature_engineering import (
     create_physics_based_features,
     create_future_explanatory_features,
     create_thermo_state_features,
-    select_important_features
+    select_important_features,
+    create_polynomial_features
 )
 
 # モデルトレーニング関数のインポート
@@ -51,7 +51,8 @@ from src.models.evaluation import (
     calculate_metrics,
     print_metrics,
     analyze_feature_importance,
-    analyze_lag_dependency
+    analyze_lag_dependency,
+    print_lag_dependency_warning
 )
 
 # 可視化関数のインポート
@@ -79,14 +80,10 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
         処理対象の予測ホライゾン（分）のリスト（None の場合は全てのホライゾン）
     """
     print("# 空調システム室内温度予測モデル開発")
-
-    # テストモードの表示
     if test_mode:
         print(f"[テストモード] 対象ゾーン: {target_zones}, 対象ホライゾン: {target_horizons}")
 
     print("## データ読み込みと前処理")
-
-    # データ読み込み
     try:
         df = pd.read_csv('AllDayData.csv')
         print(f"データ読み込み成功: {df.shape[0]}行 x {df.shape[1]}列")
@@ -94,19 +91,6 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
         print(f"データ読み込みエラー: {e}")
         return
 
-    # メモリ使用状況確認
-    print("メモリ使用状況:")
-    mem_usage = df.memory_usage(deep=True).sum() / (1024 * 1024)
-    print(f"総メモリ使用量: {mem_usage:.2f} MB")
-
-    print("\n## データの基本情報確認")
-
-    # データの基本統計量
-    print("\nデータの基本統計量:")
-    desc_stats = df.describe()
-    print(desc_stats)
-
-    # 欠損値の確認
     missing_values = df.isnull().sum()
     missing_percent = (missing_values / len(df)) * 100
 
@@ -115,7 +99,6 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
         '欠損率(%)': missing_percent
     })
 
-    # 欠損のある列のみを表示
     print("\n欠損値の状況:")
     missing_cols = missing_df[missing_df['欠損値数'] > 0].sort_values('欠損値数', ascending=False)
     if len(missing_cols) > 0:
@@ -160,24 +143,17 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
             actual_horizons = target_horizons
             print(f"指定されたホライゾンを使用します: {actual_horizons}")
 
-    # LMRのゾーン区分を表示
-    print("ゾーン区分:")
-    print(f"L系統ゾーン: {[z for z in L_ZONES if z in existing_zones]}")
-    print(f"M系統ゾーン: {[z for z in M_ZONES if z in existing_zones]}")
-    print(f"R系統ゾーン: {[z for z in R_ZONES if z in existing_zones]}")
-
-    # 上司のアドバイスに従い、不要な列を削除
     # AC_temp_* 列を削除
     ac_temp_cols = [col for col in df.columns if 'AC_temp_' in col]
     if ac_temp_cols:
         df = df.drop(columns=ac_temp_cols)
-        print(f"\n上司のアドバイスに従い、{len(ac_temp_cols)}個のAC_temp_列を削除しました")
+        print(f"\n{len(ac_temp_cols)}個のAC_temp_列を削除しました")
 
     # 電力系統データ（L, M, R）を削除
     power_cols = [col for col in df.columns if col in ['L', 'M', 'R']]
     if power_cols:
         df = df.drop(columns=power_cols)
-        print(f"上司のアドバイスに従い、{len(power_cols)}個の電力系統データ列を削除しました")
+        print(f"{len(power_cols)}個の電力系統データ列を削除しました")
 
     print("\n## 目的変数の作成（将来温度の予測）")
 
@@ -188,10 +164,10 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
     # 外れ値処理の実行
     df_with_targets = filter_temperature_outliers(df_with_targets)
 
-    # センサーデータの平滑化処理（ノイズ対策）- 上司のアドバイスに従い強化
-    print("\n上司のアドバイスに従い、センサーデータの平滑化処理を強化します")
+    # センサーデータの平滑化処理（ノイズ対策）
+    print("\nセンサーデータの平滑化処理を強化します")
     # スムージングウィンドウを拡張してより強力なノイズ除去
-    enhanced_smoothing_windows = SMOOTHING_WINDOWS + [18, 24]  # より長いウィンドウも追加
+    enhanced_smoothing_windows = SMOOTHING_WINDOWS + [18, 24]
     df_with_targets, smoothed_features = apply_smoothing_to_sensors(df_with_targets, enhanced_smoothing_windows)
 
     # 時系列特徴量の作成
@@ -215,7 +191,7 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
     print(df_with_targets[[f'sens_temp_{first_zone}'] + [col for col in target_cols if f'_{first_zone}_future' in col]].head(10))
 
     print("\n## 特徴量エンジニアリング")
-    # サーモ状態特徴量を作成 - 上司のアドバイスに従い強化
+    # サーモ状態特徴量を作成
     df_with_targets, thermo_features = create_thermo_state_features(df_with_targets, existing_zones)
     print(f"サーモ状態特徴量を{len(thermo_features)}個作成しました")
 
@@ -225,7 +201,8 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
     # 共通環境特徴量
     actual_atmo_temp_col_name = None
     for col_name in df_with_targets.columns:
-        if 'atmospheric' in col_name.lower() and 'temperature' in col_name.lower():
+        col_lower = col_name.lower()
+        if 'atmospheric' in col_lower and 'temperature' in col_lower:
             actual_atmo_temp_col_name = col_name
             future_explanatory_base_config.append({'name': actual_atmo_temp_col_name, 'type': 'common'})
             print(f"環境特徴量 (未来予測対象): {actual_atmo_temp_col_name}")
@@ -233,13 +210,14 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
 
     actual_solar_rad_col_name = None
     for col_name in df_with_targets.columns:
-        if 'total' in col_name.lower() and 'solar' in col_name.lower() and 'radiation' in col_name.lower():
+        col_lower = col_name.lower()
+        if 'total' in col_lower and 'solar' in col_lower and 'radiation' in col_lower:
             actual_solar_rad_col_name = col_name
             future_explanatory_base_config.append({'name': actual_solar_rad_col_name, 'type': 'common'})
             print(f"環境特徴量 (未来予測対象): {actual_solar_rad_col_name}")
             break
 
-    # ゾーン別特徴量 (サーモ状態, AC有効状態, ACモード) - 上司のアドバイスに従い修正
+    # ゾーン別特徴量 (サーモ状態, AC有効状態, ACモード)
     for zone in existing_zones:
         # サーモ状態を優先
         if f'thermo_state_{zone}' in df_with_targets.columns:
@@ -262,7 +240,7 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
             future_explanatory_base_config.append({'name': ac_mode_col_candidate, 'type': 'zone_specific', 'zone': zone})
             print(f"ACモード特徴量 (未来予測対象): {ac_mode_col_candidate}")
 
-    # 未来の説明変数を生成 - 上司のアドバイスに従い修正
+    # 未来の説明変数を生成
     time_diff_seconds_val = time_diff.total_seconds()
     df_with_targets, all_future_explanatory_features = create_future_explanatory_features(
         df_with_targets,
@@ -278,7 +256,7 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
     # センサー温度・湿度（平滑化版を優先）
     feature_cols.extend(smoothed_features)
 
-    # サーモ状態特徴量を追加（上司のアドバイスに従い優先）
+    # サーモ状態特徴量を追加
     feature_cols.extend(thermo_features)
 
     # 物理ベースの特徴量
@@ -289,40 +267,46 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
     # 未来の説明変数（制御可能パラメータと環境データ）
     feature_cols.extend(all_future_explanatory_features)
 
-    # 時間特徴量（上司のアドバイスに従い、day_of_weekとis_weekendは削除検討）
-    time_features = ['hour']
+    # 時間特徴量
+    time_features = ['hour', 'hour_sin', 'hour_cos']
 
-    # 高次の相互作用を生成するためのベース特徴量（上司のアドバイスを反映）
+    # 高次の相互作用を生成するためのベース特徴量
     poly_base_features = []
 
-    # 上司のアドバイスに従った重要な特徴量
+    # 利用可能な列名を取得
+    available_columns = df_with_targets.columns.tolist()
+
     for zone in existing_zones:
-        # 現在の温度・湿度
+        # 現在の温度・湿度（平滑化済みを優先）
+        # カラム名が存在するか確認してから追加
         temp_feature = f'sens_temp_{zone}_smoothed' if f'sens_temp_{zone}_smoothed' in df_with_targets.columns else f'sens_temp_{zone}'
-        poly_base_features.append(temp_feature)
+        if temp_feature in available_columns:
+            poly_base_features.append(temp_feature)
 
         # サーモ状態
-        if f'thermo_state_{zone}' in df_with_targets.columns:
+        if f'thermo_state_{zone}' in available_columns:
             poly_base_features.append(f'thermo_state_{zone}')
 
         # 空調発停
-        if f'AC_valid_{zone}' in df_with_targets.columns:
+        if f'AC_valid_{zone}' in available_columns:
             poly_base_features.append(f'AC_valid_{zone}')
 
-    # 環境特徴量
-    if actual_atmo_temp_col_name:
+    # 環境特徴量 - カラム名の問題を考慮
+    if actual_atmo_temp_col_name and actual_atmo_temp_col_name in available_columns:
         poly_base_features.append(actual_atmo_temp_col_name)
-    if actual_solar_rad_col_name:
+    if actual_solar_rad_col_name and actual_solar_rad_col_name in available_columns:
         poly_base_features.append(actual_solar_rad_col_name)
 
     # 未来特徴量のベース版も追加（ホライゾンが最小のもの）
     min_horizon = min(actual_horizons)
     for base_feature in poly_base_features.copy():
         future_feature = f"{base_feature}_future_{min_horizon}"
-        if future_feature in df_with_targets.columns:
+        if future_feature in available_columns:
             poly_base_features.append(future_feature)
 
-    print(f"多項式特徴量のベース特徴: {poly_base_features}")
+    print(f"多項式特徴量のベース特徴: {len(poly_base_features)}個")
+    for i, feature in enumerate(poly_base_features):
+        print(f"  {i+1}. {feature}")
 
     # リスト内の重複を排除
     feature_cols = list(dict.fromkeys(feature_cols + time_features))
@@ -355,9 +339,15 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
             train_X = train_X.fillna(method='ffill').fillna(method='bfill')
             test_X = test_X.fillna(method='ffill').fillna(method='bfill')
 
+            # 多項式特徴量の生成
+            train_X_poly, test_X_poly, poly_features = create_polynomial_features(
+                train_X, test_X, poly_base_features, degree=2
+            )
+            print(f"多項式特徴量を{len(poly_features)}個追加しました")
+
             # 特徴量選択
             train_X_selected, test_X_selected, selected_features = select_important_features(
-                train_X, train_y, test_X, feature_cols, FEATURE_SELECTION_THRESHOLD
+                train_X_poly, train_y, test_X_poly, feature_cols + poly_features, FEATURE_SELECTION_THRESHOLD
             )
 
             # モデルトレーニング
@@ -389,10 +379,12 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
             print("\nLAG特徴量への依存度:")
             print(lag_dependency)
 
+            # LAG依存度警告の表示（依存度が高い場合は警告を表示）
+            print_lag_dependency_warning(lag_dependency, threshold=30.0, zone=zone, horizon=horizon)
+
             # モデルと特徴量情報を保存
             model_path, features_path = save_model_and_features(model, selected_features, zone, horizon)
 
-            # 結果を格納
             zone_results[horizon] = {
                 'model': model,
                 'selected_features': selected_features,
@@ -407,20 +399,14 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
                 'test_df': test_df
             }
 
-        # ゾーンごとの結果を格納
         results[zone] = zone_results
-
-    # ホライゾンごとにすべてのゾーンをまとめた可視化を生成
     print("\n## ホライゾンごとの集約可視化を生成中...")
     for horizon in actual_horizons:
-        # 散布図（全ゾーン）
         scatter_fig = plot_scatter_actual_vs_predicted_by_horizon(results, horizon, save_dir=OUTPUT_DIR)
         if scatter_fig:
             print(f"ホライゾン {horizon}分 の散布図を生成しました")
         else:
             print(f"ホライゾン {horizon}分 の散布図生成に失敗しました")
-
-        # 時系列プロット（全ゾーン）
         ts_fig = plot_time_series_by_horizon(results, horizon, save_dir=OUTPUT_DIR)
         if ts_fig:
             print(f"ホライゾン {horizon}分 の時系列プロットを生成しました")
@@ -429,7 +415,6 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
 
     print("\n## すべてのモデルのトレーニングが完了しました")
     print(f"結果は {OUTPUT_DIR} ディレクトリに保存されています")
-
     return results
 
 
@@ -438,10 +423,7 @@ if __name__ == "__main__":
     parser.add_argument('--test', action='store_true', help='テストモードで実行（サブセットのデータとゾーンで処理）')
     parser.add_argument('--zones', type=int, nargs='+', help='処理対象のゾーン番号')
     parser.add_argument('--horizons', type=int, nargs='+', help='処理対象の予測ホライゾン（分）')
-
     args = parser.parse_args()
-
-    # コマンドライン引数に基づいて実行
     main(
         test_mode=args.test,
         target_zones=args.zones,

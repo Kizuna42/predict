@@ -79,6 +79,59 @@ def print_metrics(metrics, zone=None, horizon=None):
     print(f"R²: {metrics['r2']:.4f}")
 
 
+def print_lag_dependency_warning(lag_dependency, threshold=30.0, zone=None, horizon=None):
+    """
+    LAG特徴量への依存度が高い場合に警告を表示する関数
+
+    Parameters:
+    -----------
+    lag_dependency : dict
+        LAG依存度分析の結果辞書
+    threshold : float, optional
+        警告を表示するLAG依存度の閾値（パーセント）
+    zone : int, optional
+        ゾーン番号
+    horizon : int, optional
+        予測ホライゾン（分）
+    """
+    # 総LAG依存度の計算（lag_temp_percentとrolling_temp_percentの合計）
+    total_lag_dependency = lag_dependency['lag_temp_percent'] + lag_dependency['rolling_temp_percent']
+
+    # 過去の時系列データへの総依存度
+    total_past_dependency = lag_dependency['total_past_time_series_percent']
+
+    header = "LAG特徴量依存度分析"
+    if zone is not None:
+        header += f" (ゾーン{zone}"
+        if horizon is not None:
+            header += f", {horizon}分後)"
+        else:
+            header += ")"
+    elif horizon is not None:
+        header += f" ({horizon}分後)"
+
+    print(f"\n{header}:")
+    print(f"直接的LAG特徴量依存度: {lag_dependency['lag_temp_percent']:.2f}%")
+    print(f"移動平均特徴量依存度: {lag_dependency['rolling_temp_percent']:.2f}%")
+    print(f"総LAG依存度: {total_lag_dependency:.2f}%")
+    print(f"過去時系列データへの総依存度: {total_past_dependency:.2f}%")
+
+    # 依存度が閾値を超える場合に警告を表示
+    if total_lag_dependency > threshold:
+        print(f"\n⚠️ 警告: LAG特徴量への依存度が高すぎます ({total_lag_dependency:.2f}% > {threshold:.2f}%)")
+        print("  モデルが過去の温度値に過度に依存している可能性があります。")
+        print("  以下の対策を検討してください:")
+        print("  - より物理的な意味を持つ特徴量を追加")
+        print("  - LAG特徴量の重みを下げる")
+        print("  - より長期のLAGのみを使用")
+    elif total_past_dependency > threshold * 1.5:
+        print(f"\n⚠️ 注意: 過去時系列データへの依存度が高めです ({total_past_dependency:.2f}%)")
+        print("  モデルが過去のデータに依存している可能性があります。")
+    else:
+        print(f"\n✅ LAG依存度は許容範囲内です ({total_lag_dependency:.2f}% <= {threshold:.2f}%)")
+        print("  モデルは適切に物理特徴量や未来の説明変数を活用しています。")
+
+
 def analyze_feature_importance(model, feature_names, top_n=15):
     """
     モデルの特徴量重要度を分析する関数

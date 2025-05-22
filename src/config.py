@@ -1,19 +1,11 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-"""
-設定値モジュール
-温度予測モデルに関する各種パラメータと設定値を定義
-上司のアドバイスに基づいて修正済み
-"""
-
 import os
 
-# パス設定
 OUTPUT_DIR = 'Output'
 MODELS_DIR = os.path.join(OUTPUT_DIR, 'models')
 
-# ディレクトリが存在しない場合は作成
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(MODELS_DIR, exist_ok=True)
 
@@ -21,18 +13,17 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 MIN_TEMP = 10  # 最小許容温度
 MAX_TEMP = 40  # 最大許容温度
 
-# スムージング窓サイズ（上司のアドバイスに従い、より長いウィンドウも追加）
+# スムージング窓サイズ
 SMOOTHING_WINDOWS = [3, 6, 12, 18, 24]
 
 # 予測ホライゾン（分）
 HORIZONS = [5, 10, 15, 20, 30]
 
-# LMRのゾーン区分
 L_ZONES = [0, 1, 6, 7]
 M_ZONES = [2, 3, 8, 9]
 R_ZONES = [4, 5, 10, 11]
 
-# モデルハイパーパラメータ - 上司のアドバイスに従い調整
+# モデルハイパーパラメータ
 LGBM_PARAMS = {
     'n_estimators': 300,
     'learning_rate': 0.005,

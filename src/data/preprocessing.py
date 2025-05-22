@@ -81,136 +81,30 @@ def filter_temperature_outliers(df, min_temp=MIN_TEMP, max_temp=MAX_TEMP, log=Tr
     return df_filtered
 
 
-def apply_smoothing_to_sensors(df, windows):
+def apply_smoothing_to_sensors(df, window_sizes):
     """
-    センサーの温度・湿度データに移動平均処理を適用してノイズを軽減する関数
-    重要: 未来の値を使用せず、現在までのデータのみを使用する
-    改善:
-    1. 単純移動平均に加えて指数移動平均も導入し、複数のウィンドウサイズでスムージング
-    2. 上司のアドバイスに従い、スパイクノイズ除去を強化
-
-    Parameters:
-    -----------
-    df : DataFrame
-        時系列インデックスを持つデータフレーム
-    windows : list
-        移動平均の窓サイズのリスト
-
-    Returns:
-    --------
-    DataFrame
-        平滑化された特徴量を追加したデータフレーム
-    list
-        作成された平滑化特徴量のリスト
+    センサーデータにスムージングを適用する関数
+    データリーク防止のため、過去のデータのみを使用するよう修正
     """
-    print(f"\n## センサーデータの平滑化処理（窓サイズ: {windows}）")
     df_copy = df.copy()
     smoothed_features = []
 
-    # センサー温度
-    temp_cols = [col for col in df.columns if 'sens_temp_' in col and 'future' not in col]
-    for col in temp_cols:
-        # 複数のウィンドウサイズで平滑化
-        for window in windows:
-            # 単純移動平均 (SMA)
-            smoothed_col = f'{col}_smoothed_{window}'
-            # 過去と現在のデータのみを使用した移動平均（min_periods=1を設定）
-            df_copy[smoothed_col] = df_copy[col].rolling(window=window, min_periods=1).mean()
-            smoothed_features.append(smoothed_col)
-
-            # 指数移動平均 (EMA)
-            # より直近のデータに高い重みを与える
-            ema_col = f'{col}_ema_{window}'
-            # 指数移動平均は過去のデータに一定の重みを付けて計算
-            df_copy[ema_col] = df_copy[col].ewm(span=window, min_periods=1, adjust=False).mean()
-            smoothed_features.append(ema_col)
-
-        # メインの平滑化バージョンも保持（後方互換性のため）
-        main_window = 6  # 標準のウィンドウサイズ
-        df_copy[f'{col}_smoothed'] = df_copy[f'{col}_smoothed_{main_window}']
-
-        print(f"温度センサー列 '{col}' の平滑化特徴量を複数のウィンドウサイズで作成しました")
-
-    # センサー湿度（あれば）
-    humid_cols = [col for col in df.columns if 'sens_humid_' in col and 'future' not in col]
-    for col in humid_cols:
-        # 複数のウィンドウサイズで平滑化
-        for window in windows:
-            # 単純移動平均 (SMA)
-            smoothed_col = f'{col}_smoothed_{window}'
-            # 過去と現在のデータのみを使用した移動平均（min_periods=1を設定）
-            df_copy[smoothed_col] = df_copy[col].rolling(window=window, min_periods=1).mean()
-            smoothed_features.append(smoothed_col)
-
-            # 指数移動平均 (EMA)
-            ema_col = f'{col}_ema_{window}'
-            df_copy[ema_col] = df_copy[col].ewm(span=window, min_periods=1, adjust=False).mean()
-            smoothed_features.append(ema_col)
-
-        # メインの平滑化バージョンも保持
-        df_copy[f'{col}_smoothed'] = df_copy[f'{col}_smoothed_{main_window}']
-
-        print(f"湿度センサー列 '{col}' の平滑化特徴量を複数のウィンドウサイズで作成しました")
-
-    # 上司のアドバイスに従い、強化されたスパイク検出と平滑化処理
-    print("\n上司のアドバイスに従い、スパイク検出と平滑化処理を強化します")
+    # 温度センサーのカラムを取得
+    temp_cols = [col for col in df.columns if 'sens_temp' in col and 'future' not in col]
 
     for col in temp_cols:
-        # ベースとなる平滑化された値（長めのウィンドウを使用）
-        long_window = max(windows)
-        base_smoothed = df_copy[col].rolling(window=long_window, min_periods=1).mean()
+        for window in window_sizes:
+            # min_periods=windowとし、window分のデータが揃うまでNaNとする
+            # center=Falseとし、過去のデータのみを使用
+            smoothed_col = f"{col}_smoothed_w{window}"
+            df_copy[smoothed_col] = df_copy[col].rolling(
+                window=window, min_periods=window, center=False).mean()
+            smoothed_features.append(smoothed_col)
 
-        # スパイク検出（より厳格なスパイク検出）
-        original_values = df_copy[col]
-        residuals = original_values - base_smoothed
+    # 前方補間でNaN値を埋める
+    for col in smoothed_features:
+        df_copy[col] = df_copy[col].fillna(method='ffill')
 
-        # 残差の移動標準偏差を計算（より局所的なノイズ特性を捉える）
-        rolling_std = residuals.rolling(window=12, min_periods=1).std()
-        # 動的閾値の設定（各点で標準偏差に基づいて決定）
-        threshold = 2.5 * rolling_std  # 2.5シグマ閾値（調整可能）
-
-        # スパイクマスクの生成
-        spike_mask = residuals.abs() > threshold
-
-        # 非スパイク領域のみを使用して、より良い補間値を計算
-        # まず、スパイクをNaNに置き換え
-        temp_series = df_copy[col].copy()
-        temp_series[spike_mask] = np.nan
-
-        # スパイク率を計算
-        spike_rate = spike_mask.mean() * 100
-
-        # カーネル平滑化ベースのスパイク除去バージョン（カーネル幅を調整）
-        k_size = 5  # カーネルサイズ
-        kernel = np.ones(k_size) / k_size
-        # 移動平均を適用（NaNをスキップ）
-        smooth_vals = np.convolve(
-            np.array(temp_series.fillna(method='ffill').fillna(method='bfill')),
-            kernel,
-            mode='same'
-        )
-
-        # クリーンな値と平滑化値を組み合わせて最終値を作成
-        df_copy[f'{col}_despike'] = df_copy[col].copy()
-        df_copy.loc[spike_mask, f'{col}_despike'] = smooth_vals[spike_mask.values]
-
-        # 大きな移動平均窓を使用した最終的な平滑化（比較用）
-        df_copy[f'{col}_fully_smoothed'] = df_copy[f'{col}_despike'].rolling(window=max(windows), min_periods=1).mean()
-
-        # スパイク除去後と完全平滑化両方のバージョンを特徴量に追加
-        smoothed_features.append(f'{col}_despike')
-        smoothed_features.append(f'{col}_fully_smoothed')
-
-        if spike_rate > 0:
-            print(f"センサー列 '{col}' でスパイクを検出・処理しました (スパイク率: {spike_rate:.2f}%)")
-
-        # 上司のアドバイスによる移動平均をかけた温度値を作成
-        # これは目的変数（未来温度）の計算には使用せず、特徴量としてのみ使用
-        for window in [5, 10, 15, 20]:
-            df_copy[f'{col}_ma_{window}'] = df_copy[f'{col}_despike'].rolling(window=window, min_periods=1).mean()
-            smoothed_features.append(f'{col}_ma_{window}')
-
-    print(f"合計{len(smoothed_features)}個の平滑化特徴量を作成しました")
     return df_copy, smoothed_features
 
 
@@ -256,6 +150,7 @@ def create_future_targets(df, zone_nums, horizons_minutes, time_diff):
 def prepare_time_features(df):
     """
     時間関連の特徴量を作成する関数
+    上司のアドバイスに従い、必要最小限の時間特徴量のみ生成
 
     Parameters:
     -----------
@@ -275,18 +170,14 @@ def prepare_time_features(df):
         df_copy = df_copy.set_index('time_stamp')
         print(f"時間列 'time_stamp' をインデックスに設定しました")
 
-    # 基本的な時間特徴量の追加
+    # 基本的な時間特徴量：上司のアドバイスに従い、hourのみ追加
     df_copy['hour'] = df_copy.index.hour
-    df_copy['day_of_week'] = df_copy.index.dayofweek
-    df_copy['is_weekend'] = df_copy['day_of_week'].isin([5, 6]).astype(int)
 
-    # 周期的時間特徴量の追加（sin/cos変換）
+    # 周期的時間特徴量：hourの周期的表現のみ追加
     df_copy['hour_sin'] = np.sin(df_copy['hour'] * 2 * np.pi / 24)
     df_copy['hour_cos'] = np.cos(df_copy['hour'] * 2 * np.pi / 24)
-    df_copy['day_sin'] = np.sin(df_copy['day_of_week'] * 2 * np.pi / 7)
-    df_copy['day_cos'] = np.cos(df_copy['day_of_week'] * 2 * np.pi / 7)
 
-    print("時間特徴量を追加しました: hour, day_of_week, is_weekend, hour_sin, hour_cos, day_sin, day_cos")
+    print("時間特徴量を追加しました: hour, hour_sin, hour_cos")
 
     return df_copy
 
