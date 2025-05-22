@@ -227,7 +227,9 @@ def create_physics_based_features(df, zone_nums):
 def create_future_explanatory_features(df, base_features_config, horizons_minutes, time_diff_seconds):
     """
     制御可能なパラメータの未来値を説明変数として作成する関数
-    改善: データリークを防ぐため、制御可能なパラメータのみを使用
+    改善:
+    1. データリークを防ぐため、制御可能なパラメータのみを使用
+    2. 目的変数と同じシフト量を適用（15分先予測なら説明変数も15分先を使用）
 
     Parameters:
     -----------
@@ -247,16 +249,21 @@ def create_future_explanatory_features(df, base_features_config, horizons_minute
     list
         作成された特徴量のリスト
     """
-    print("制御可能なパラメータの未来値を特徴量として作成中...")
+    print("制御可能なパラメータと環境データの未来値を特徴量として作成中...")
     df_copy = df.copy()
     created_features = []
 
-    # 制御可能なパラメータのプレフィックスのリスト
+    # 上司のアドバイスに基づいて制御可能なパラメータのプレフィックスのリスト
     controllable_params_prefixes = [
-        'thermo_state_',  # サーモスタット状態
-        'AC_mode_',       # 空調モード
-        'AC_valid_',      # 空調有効状態
-        'AC_set_'         # 設定温度
+        'thermo_state_',  # サーモスタット状態（使用可）
+        'AC_mode_',       # 空調モード（使用可）
+        'AC_valid_',      # 空調有効状態（使用可）
+    ]
+
+    # 環境データのプレフィックス（検討可能）
+    environmental_prefixes = [
+        'atmospheric',    # 外気温
+        'total solar',    # 日射量
     ]
 
     # 各ホライゾンに対して
@@ -274,12 +281,19 @@ def create_future_explanatory_features(df, base_features_config, horizons_minute
 
             # 制御可能なパラメータかどうかを確認
             is_controllable = any(base_col_name.startswith(prefix) for prefix in controllable_params_prefixes)
+            # 環境データかどうかを確認
+            is_environmental = any(prefix in base_col_name.lower() for prefix in environmental_prefixes)
 
-            # 制御可能なパラメータのみ未来値を作成
-            if is_controllable:
+            # 制御可能なパラメータと環境データのみ未来値を作成
+            if is_controllable or is_environmental:
                 future_col = f"{base_col_name}_future_{horizon}"
-                df_copy[future_col] = df_copy[base_col_name].shift(-shift_steps)
+                df_copy[future_col] = df_copy[base_col_name].shift(-shift_steps)  # 同じシフト量を適用
                 created_features.append(future_col)
+
+                if is_controllable:
+                    print(f"制御可能パラメータの未来値を作成: {future_col}")
+                if is_environmental:
+                    print(f"環境データの未来値を作成: {future_col}")
 
     print(f"作成した未来の説明変数: {len(created_features)}個")
     return df_copy, created_features
@@ -289,6 +303,7 @@ def create_thermo_state_features(df, zone_nums):
     """
     サーモ状態の特徴量を作成
     センサー温度とAC設定温度の差を計算
+    サーモの状態を導入し、AC_setの代わりにもなるようにする
 
     Parameters:
     -----------
@@ -309,12 +324,23 @@ def create_thermo_state_features(df, zone_nums):
 
     for zone in zone_nums:
         if f'sens_temp_{zone}' in df_copy.columns and f'AC_set_{zone}' in df_copy.columns:
-            # サーモ状態 = センサー温度 - 設定温度
-            thermo_col = f'thermo_state_{zone}'
             # 平滑化されたセンサー温度が存在すればそちらを優先してサーモ状態を計算
             base_temp_col_for_thermo = f'sens_temp_{zone}_smoothed' if f'sens_temp_{zone}_smoothed' in df_copy.columns else f'sens_temp_{zone}'
+
+            # サーモ状態 = センサー温度 - 設定温度
+            thermo_col = f'thermo_state_{zone}'
             df_copy[thermo_col] = df_copy[base_temp_col_for_thermo] - df_copy[f'AC_set_{zone}']
             thermo_features.append(thermo_col)
+
+            # 上司のアドバイスに基づき、サーモの状態を基準とした特徴量を追加
+            # 冷房モードと暖房モードで異なるサーモ状態の特性を表現
+            if f'AC_mode_{zone}' in df_copy.columns:
+                # AC_modeに基づいてサーモ状態の意味を調整（冷房/暖房）
+                ac_mode_col = f'AC_mode_{zone}'
+                # 冷房モード時は正のサーモ状態が「暑い」、暖房モード時は負のサーモ状態が「寒い」
+                df_copy[f'thermo_state_adjusted_{zone}'] = df_copy[thermo_col] * df_copy[ac_mode_col].map({0: 1, 1: -1})
+                thermo_features.append(f'thermo_state_adjusted_{zone}')
+
             print(f"ゾーン{zone}のサーモ状態特徴量を作成しました: {thermo_col} (ベース温度: {base_temp_col_for_thermo})")
 
     return df_copy, thermo_features
@@ -358,7 +384,19 @@ def select_important_features(X_train, y_train, X_test, feature_names, threshold
     )
 
     # SelectFromModelで重要な特徴量を選択
-    selector = SelectFromModel(selection_model, threshold=threshold)
+    # パーセント表記の閾値を処理（'30%'のような文字列）
+    selector_threshold = threshold
+    if isinstance(threshold, str) and '%' in threshold:
+        # パーセント表記の閾値をfloatに変換（'30%' → 0.3）
+        try:
+            selector_threshold = float(threshold.strip('%')) / 100.0
+            print(f"閾値を変換しました: {threshold} → {selector_threshold}")
+        except ValueError:
+            # 変換できない場合は'mean'を使用
+            selector_threshold = 'mean'
+            print(f"閾値の解析に失敗したため、'mean'を使用します: {threshold}")
+
+    selector = SelectFromModel(selection_model, threshold=selector_threshold)
 
     try:
         # 物理特徴量を優先して選択するために重みを付ける

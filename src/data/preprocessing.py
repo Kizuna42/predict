@@ -85,7 +85,9 @@ def apply_smoothing_to_sensors(df, windows):
     """
     センサーの温度・湿度データに移動平均処理を適用してノイズを軽減する関数
     重要: 未来の値を使用せず、現在までのデータのみを使用する
-    改善: 単純移動平均に加えて指数移動平均も導入し、複数のウィンドウサイズでスムージング
+    改善:
+    1. 単純移動平均に加えて指数移動平均も導入し、複数のウィンドウサイズでスムージング
+    2. 上司のアドバイスに従い、スパイクノイズ除去を強化
 
     Parameters:
     -----------
@@ -150,35 +152,63 @@ def apply_smoothing_to_sensors(df, windows):
 
         print(f"湿度センサー列 '{col}' の平滑化特徴量を複数のウィンドウサイズで作成しました")
 
-    # スパイク検出と処理機能を追加
+    # 上司のアドバイスに従い、強化されたスパイク検出と平滑化処理
+    print("\n上司のアドバイスに従い、スパイク検出と平滑化処理を強化します")
+
     for col in temp_cols:
-        # スパイク検出（標準偏差ベースの閾値）
+        # ベースとなる平滑化された値（長めのウィンドウを使用）
+        long_window = max(windows)
+        base_smoothed = df_copy[col].rolling(window=long_window, min_periods=1).mean()
+
+        # スパイク検出（より厳格なスパイク検出）
         original_values = df_copy[col]
-        smoothed_values = df_copy[f'{col}_smoothed']
-        residuals = original_values - smoothed_values
+        residuals = original_values - base_smoothed
 
-        # 残差の標準偏差を計算
-        std_residual = residuals.std()
+        # 残差の移動標準偏差を計算（より局所的なノイズ特性を捉える）
+        rolling_std = residuals.rolling(window=12, min_periods=1).std()
+        # 動的閾値の設定（各点で標準偏差に基づいて決定）
+        threshold = 2.5 * rolling_std  # 2.5シグマ閾値（調整可能）
 
-        # 閾値を超える残差をマスク（スパイクとして検出）
-        threshold = 3.0 * std_residual  # 3シグマ閾値
+        # スパイクマスクの生成
         spike_mask = residuals.abs() > threshold
+
+        # 非スパイク領域のみを使用して、より良い補間値を計算
+        # まず、スパイクをNaNに置き換え
+        temp_series = df_copy[col].copy()
+        temp_series[spike_mask] = np.nan
 
         # スパイク率を計算
         spike_rate = spike_mask.mean() * 100
 
-        # スパイク検出結果の特徴量を作成
-        df_copy[f'{col}_is_spike'] = spike_mask.astype(int)
+        # カーネル平滑化ベースのスパイク除去バージョン（カーネル幅を調整）
+        k_size = 5  # カーネルサイズ
+        kernel = np.ones(k_size) / k_size
+        # 移動平均を適用（NaNをスキップ）
+        smooth_vals = np.convolve(
+            np.array(temp_series.fillna(method='ffill').fillna(method='bfill')),
+            kernel,
+            mode='same'
+        )
 
-        # 検出されたスパイクを修正した値を作成
+        # クリーンな値と平滑化値を組み合わせて最終値を作成
         df_copy[f'{col}_despike'] = df_copy[col].copy()
-        df_copy.loc[spike_mask, f'{col}_despike'] = smoothed_values[spike_mask]
+        df_copy.loc[spike_mask, f'{col}_despike'] = smooth_vals[spike_mask.values]
 
-        # デスパイク後の値を平滑化特徴量に追加
+        # 大きな移動平均窓を使用した最終的な平滑化（比較用）
+        df_copy[f'{col}_fully_smoothed'] = df_copy[f'{col}_despike'].rolling(window=max(windows), min_periods=1).mean()
+
+        # スパイク除去後と完全平滑化両方のバージョンを特徴量に追加
         smoothed_features.append(f'{col}_despike')
+        smoothed_features.append(f'{col}_fully_smoothed')
 
         if spike_rate > 0:
-            print(f"センサー列 '{col}' でスパイクを検出しました (スパイク率: {spike_rate:.2f}%)")
+            print(f"センサー列 '{col}' でスパイクを検出・処理しました (スパイク率: {spike_rate:.2f}%)")
+
+        # 上司のアドバイスによる移動平均をかけた温度値を作成
+        # これは目的変数（未来温度）の計算には使用せず、特徴量としてのみ使用
+        for window in [5, 10, 15, 20]:
+            df_copy[f'{col}_ma_{window}'] = df_copy[f'{col}_despike'].rolling(window=window, min_periods=1).mean()
+            smoothed_features.append(f'{col}_ma_{window}')
 
     print(f"合計{len(smoothed_features)}個の平滑化特徴量を作成しました")
     return df_copy, smoothed_features
@@ -274,8 +304,8 @@ def get_time_based_train_test_split(df, test_size=0.2):
 
     Returns:
     --------
-    cutoff_date : timestamp
-        トレーニングデータとテストデータを分ける日時
+    tuple
+        (train_df, test_df): トレーニングデータとテストデータのデータフレーム
     """
     # インデックスをソート
     sorted_idx = df.index.sort_values()
@@ -288,4 +318,10 @@ def get_time_based_train_test_split(df, test_size=0.2):
     print(f"トレーニングデータ期間: {sorted_idx[0]} から {cutoff_date}")
     print(f"テストデータ期間: {cutoff_date} から {sorted_idx[-1]}")
 
-    return cutoff_date
+    # 実際にデータフレームを分割
+    train_df = df[df.index <= cutoff_date].copy()
+    test_df = df[df.index > cutoff_date].copy()
+
+    print(f"トレーニングデータ: {train_df.shape[0]}行, テストデータ: {test_df.shape[0]}行")
+
+    return train_df, test_df

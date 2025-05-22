@@ -8,31 +8,46 @@
 
 import pandas as pd
 import numpy as np
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error
 
 
 def calculate_metrics(y_true, y_pred):
     """
-    予測モデルの性能評価指標を計算する関数
+    回帰モデルの評価指標を計算する関数
 
     Parameters:
     -----------
-    y_true : Series or array-like
-        実測値
-    y_pred : Series or array-like
+    y_true : Series
+        実際の値
+    y_pred : Series or array
         予測値
 
     Returns:
     --------
     dict
-        各評価指標の値を含む辞書
+        各種評価指標を含む辞書
     """
-    metrics = {
-        'rmse': np.sqrt(mean_squared_error(y_true, y_pred)),
-        'mae': mean_absolute_error(y_true, y_pred),
-        'r2': r2_score(y_true, y_pred)
+    # NaN値の処理：両方のデータで対応する位置にNaNがないデータのみを使用
+    valid_indices = ~(pd.isna(y_true) | pd.isna(y_pred))
+    y_true_valid = y_true[valid_indices]
+    y_pred_valid = y_pred[valid_indices]
+
+    if len(y_true_valid) == 0:
+        print("警告: 有効なデータがありません。すべての値がNaNです。")
+        return {
+            'rmse': float('nan'),
+            'mae': float('nan'),
+            'mape': float('nan'),
+            'r2': float('nan')
+        }
+
+    # NaN値を除外したデータで評価指標を計算
+    return {
+        'rmse': np.sqrt(mean_squared_error(y_true_valid, y_pred_valid)),
+        'mae': mean_absolute_error(y_true_valid, y_pred_valid),
+        'mape': mean_absolute_percentage_error(y_true_valid, y_pred_valid) * 100,  # パーセント表示
+        'r2': r2_score(y_true_valid, y_pred_valid)
     }
-    return metrics
 
 
 def print_metrics(metrics, zone=None, horizon=None):
@@ -99,7 +114,7 @@ def analyze_feature_importance(model, feature_names, top_n=15):
     return sorted_importance
 
 
-def analyze_lag_dependency(feature_importance, zone, horizon, zone_system):
+def analyze_lag_dependency(feature_importance, zone=None, horizon=None, zone_system=None):
     """
     特徴量重要度を元にLAG依存度を分析する関数
 
@@ -107,11 +122,11 @@ def analyze_lag_dependency(feature_importance, zone, horizon, zone_system):
     -----------
     feature_importance : DataFrame
         特徴量名と重要度を含むデータフレーム
-    zone : int
+    zone : int, optional
         ゾーン番号
-    horizon : int
+    horizon : int, optional
         予測ホライゾン（分）
-    zone_system : str
+    zone_system : str, optional
         ゾーンの系統 (L, M, R など)
 
     Returns:
@@ -218,9 +233,9 @@ def analyze_lag_dependency(feature_importance, zone, horizon, zone_system):
         return (value / total_importance_calculated * 100) if total_importance_calculated > 0 else 0
 
     result = {
-        'zone': zone,
-        'horizon': horizon,
-        'system': zone_system,
+        'zone': zone if zone is not None else 'all',
+        'horizon': horizon if horizon is not None else 'all',
+        'system': zone_system if zone_system is not None else 'unknown',
         'current_sensor_temp_percent': to_percent(current_sensor_temp_importance),
         'current_sensor_humid_percent': to_percent(current_sensor_humid_importance),
         'lag_temp_percent': to_percent(lag_temp_importance),
