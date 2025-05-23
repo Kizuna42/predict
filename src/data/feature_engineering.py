@@ -11,6 +11,7 @@ import numpy as np
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.feature_selection import SelectFromModel
 import lightgbm as lgb
+from scipy import ndimage
 
 
 def create_physics_based_features(df, zone_nums):
@@ -195,7 +196,7 @@ def create_thermo_state_features(df, zone_nums):
 
 def select_important_features(X_train, y_train, X_test, feature_names, threshold='25%'):
     """
-    LightGBMを使った特徴量選択により、重要な特徴量のみを選択
+    LightGBMを使った特徴量選択により、重要な特徴量のみを選択（オリジナル版）
 
     Parameters:
     -----------
@@ -234,19 +235,9 @@ def select_important_features(X_train, y_train, X_test, feature_names, threshold
     # 列名に重複がないか確認（データフレームの列名も確認）
     if len(X_train.columns) != len(set(X_train.columns)):
         print("警告: データフレームの列名に重複があります。重複を排除します。")
-        # 重複のない新しいデータフレームを作成
-        unique_cols = []
-        seen_cols = set()
-        for col in X_train.columns:
-            if col not in seen_cols:
-                unique_cols.append(col)
-                seen_cols.add(col)
-
-        # 重複のない列だけを使用
+        unique_cols = list(dict.fromkeys(X_train.columns))
         X_train = X_train[unique_cols]
         X_test = X_test[unique_cols]
-
-        # feature_namesも更新
         feature_names = [f for f in feature_names if f in unique_cols]
 
     # 特徴量選択用の軽量なモデル
@@ -435,3 +426,460 @@ def create_polynomial_features(X_train, X_test, base_features, degree=2):
         print(f"多項式特徴量生成中にエラーが発生しました: {e}")
         # エラーの場合は元のデータフレームをそのまま返す
         return X_train, X_test, []
+
+
+def apply_smoothing_to_sensors(df, zone_nums, window_size=5):
+    """
+    温度・湿度センサーデータにノイズ対策の移動平均を適用
+    未来の情報を含まないように注意して平滑化を行う
+
+    Parameters:
+    -----------
+    df : DataFrame
+        時系列インデックスを持つデータフレーム
+    zone_nums : list
+        ゾーン番号のリスト
+    window_size : int
+        移動平均のウィンドウサイズ（デフォルト: 5）
+
+    Returns:
+    --------
+    DataFrame
+        平滑化された特徴量を追加したデータフレーム
+    list
+        作成された平滑化特徴量のリスト
+    """
+    print(f"温度・湿度センサーデータの平滑化処理中（ウィンドウサイズ: {window_size}）...")
+    df_copy = df.copy()
+    smoothed_features = []
+
+    # 各ゾーンの温度・湿度データを平滑化
+    for zone in zone_nums:
+        # 温度データの平滑化
+        temp_col = f'sens_temp_{zone}'
+        if temp_col in df_copy.columns:
+            # 未来の情報を含まない右寄りの移動平均（過去のデータのみ使用）
+            smoothed_col = f'{temp_col}_smoothed'
+            df_copy[smoothed_col] = df_copy[temp_col].rolling(
+                window=window_size,
+                min_periods=1,
+                center=False  # 右寄りの移動平均（未来の情報を含まない）
+            ).mean()
+            smoothed_features.append(smoothed_col)
+            print(f"温度データを平滑化しました: {temp_col} → {smoothed_col}")
+
+        # 湿度データの平滑化
+        humid_col = f'sens_humid_{zone}'
+        if humid_col in df_copy.columns:
+            smoothed_col = f'{humid_col}_smoothed'
+            df_copy[smoothed_col] = df_copy[humid_col].rolling(
+                window=window_size,
+                min_periods=1,
+                center=False
+            ).mean()
+            smoothed_features.append(smoothed_col)
+            print(f"湿度データを平滑化しました: {humid_col} → {smoothed_col}")
+
+    # 外気温データの平滑化
+    atmos_temp_cols = [col for col in df_copy.columns if 'atmospheric' in col.lower() and 'temperature' in col.lower()]
+    for col in atmos_temp_cols:
+        smoothed_col = f'{col}_smoothed'
+        df_copy[smoothed_col] = df_copy[col].rolling(
+            window=window_size,
+            min_periods=1,
+            center=False
+        ).mean()
+        smoothed_features.append(smoothed_col)
+        print(f"外気温データを平滑化しました: {col} → {smoothed_col}")
+
+    # 外気湿度データの平滑化
+    atmos_humid_cols = [col for col in df_copy.columns if 'atmospheric' in col.lower() and 'humidity' in col.lower()]
+    for col in atmos_humid_cols:
+        smoothed_col = f'{col}_smoothed'
+        df_copy[smoothed_col] = df_copy[col].rolling(
+            window=window_size,
+            min_periods=1,
+            center=False
+        ).mean()
+        smoothed_features.append(smoothed_col)
+        print(f"外気湿度データを平滑化しました: {col} → {smoothed_col}")
+
+    print(f"平滑化特徴量を{len(smoothed_features)}個作成しました")
+    return df_copy, smoothed_features
+
+
+def create_important_features(df, zone_nums, horizons_minutes, time_diff_seconds, is_prediction_mode=False):
+    """
+    重要な特徴量を統合して作成する関数
+    - 外気温・日射量
+    - サーモ状態
+    - 発停・モード
+    - 平滑化された温度・湿度
+    - 未来の制御パラメータ
+
+    Parameters:
+    -----------
+    df : DataFrame
+        時系列インデックスを持つデータフレーム
+    zone_nums : list
+        ゾーン番号のリスト
+    horizons_minutes : list
+        予測ホライゾン（分）のリスト
+    time_diff_seconds : int または float
+        データのサンプリング間隔（秒）
+    is_prediction_mode : bool
+        予測モード時はTrueを指定
+
+    Returns:
+    --------
+    DataFrame
+        重要特徴量を追加したデータフレーム
+    list
+        作成された特徴量のリスト
+    """
+    print("重要特徴量の統合作成中...")
+    df_copy = df.copy()
+    all_features = []
+
+    # 1. ノイズ対策：温度・湿度の平滑化
+    df_copy, smoothed_features = apply_smoothing_to_sensors(df_copy, zone_nums)
+    all_features.extend(smoothed_features)
+
+    # 2. サーモ状態の作成
+    df_copy, thermo_features = create_thermo_state_features(df_copy, zone_nums)
+    all_features.extend(thermo_features)
+
+    # 3. 基本的な環境・制御特徴量の収集
+    important_feature_patterns = [
+        # 外気温・日射量
+        'atmospheric.*temperature',
+        'solar.*radiation',
+
+        # 発停・モード（AC_validやAC_modeなど）
+        'AC_valid',
+        'AC_mode',
+        'AC_on',
+        'AC_off',
+
+        # 平滑化された温度・湿度（既に追加済み）
+        # 'sens_temp.*_smoothed',
+        # 'sens_humid.*_smoothed',
+
+        # サーモ状態（既に追加済み）
+        # 'thermo_state',
+    ]
+
+    base_features = []
+    for pattern in important_feature_patterns:
+        import re
+        matching_cols = [col for col in df_copy.columns if re.search(pattern, col, re.IGNORECASE)]
+        base_features.extend(matching_cols)
+
+    # 重複排除
+    base_features = list(set(base_features))
+    all_features.extend(base_features)
+
+    # 4. 未来の制御パラメータと環境データの作成
+    future_features = []
+    for horizon in horizons_minutes:
+        shift_steps = int(horizon * 60 / time_diff_seconds)
+
+        # 制御可能なパラメータの未来値
+        controllable_prefixes = ['AC_valid', 'AC_mode', 'AC_set', 'thermo_state']
+        for prefix in controllable_prefixes:
+            matching_cols = [col for col in df_copy.columns if col.startswith(prefix)]
+            for col in matching_cols:
+                future_col = f"{col}_future_{horizon}min"
+                if not is_prediction_mode:
+                    df_copy[future_col] = df_copy[col].shift(-shift_steps)
+                else:
+                    df_copy[future_col] = np.nan
+                future_features.append(future_col)
+
+        # 環境データの未来値
+        environmental_patterns = ['atmospheric.*temperature', 'solar.*radiation']
+        for pattern in environmental_patterns:
+            matching_cols = [col for col in df_copy.columns if re.search(pattern, col, re.IGNORECASE)]
+            for col in matching_cols:
+                future_col = f"{col}_future_{horizon}min"
+                if not is_prediction_mode:
+                    df_copy[future_col] = df_copy[col].shift(-shift_steps)
+                else:
+                    df_copy[future_col] = np.nan
+                future_features.append(future_col)
+
+    all_features.extend(future_features)
+
+    # 5. AC_setやAC_tempの除外（サーモ状態に一本化したため）
+    excluded_patterns = ['AC_set_[0-9]+$', 'AC_temp_[0-9]+$']
+    for pattern in excluded_patterns:
+        excluded_cols = [col for col in all_features if re.search(pattern, col)]
+        for col in excluded_cols:
+            if col in all_features:
+                all_features.remove(col)
+                print(f"除外した特徴量: {col} (サーモ状態に統合済み)")
+
+    # 重複排除
+    all_features = list(set(all_features))
+
+    # 実際に存在する特徴量のみをフィルタリング
+    existing_features = [f for f in all_features if f in df_copy.columns]
+
+    print(f"重要特徴量を{len(existing_features)}個作成しました")
+    print(f"  - 平滑化特徴量: {len(smoothed_features)}個")
+    print(f"  - サーモ状態特徴量: {len(thermo_features)}個")
+    print(f"  - 基本特徴量: {len(base_features)}個")
+    print(f"  - 未来特徴量: {len(future_features)}個")
+
+    return df_copy, existing_features
+
+
+def select_important_features_enhanced(X_train, y_train, X_test, feature_names, threshold='25%', priority_patterns=None):
+    """
+    重要特徴量パターンを優先した特徴量選択関数
+
+    Parameters:
+    -----------
+    X_train : DataFrame
+        訓練用特徴量
+    y_train : Series
+        訓練用目的変数
+    X_test : DataFrame
+        テスト用特徴量
+    feature_names : list
+        特徴量名のリスト
+    threshold : str or float
+        特徴量選択の閾値
+    priority_patterns : list of str
+        優先する特徴量のパターンリスト
+
+    Returns:
+    --------
+    X_train_selected, X_test_selected : 選択された特徴量のみを含むデータフレーム
+    selected_features : 選択された特徴量名のリスト
+    """
+    import re
+
+    if priority_patterns is None:
+        priority_patterns = [
+            'thermo_state',
+            'atmospheric.*temperature',
+            'solar.*radiation',
+            'AC_valid',
+            'AC_mode',
+            'smoothed',
+            'future.*min'
+        ]
+
+    print("重要特徴量パターンを優先した特徴量選択を開始...")
+
+    # 重複排除
+    unique_feature_names = list(dict.fromkeys(feature_names))
+    if len(unique_feature_names) != len(feature_names):
+        print(f"警告: 重複する特徴量名を{len(feature_names) - len(unique_feature_names)}個排除しました")
+        feature_names = unique_feature_names
+
+    # データフレームの列名重複チェック
+    if len(X_train.columns) != len(set(X_train.columns)):
+        print("警告: データフレームの列名に重複があります。重複を排除します。")
+        unique_cols = list(dict.fromkeys(X_train.columns))
+        X_train = X_train[unique_cols]
+        X_test = X_test[unique_cols]
+        feature_names = [f for f in feature_names if f in unique_cols]
+
+    # 1. 優先パターンにマッチする特徴量を強制選択
+    priority_features = []
+    for pattern in priority_patterns:
+        matching_features = [f for f in feature_names if re.search(pattern, f, re.IGNORECASE)]
+        priority_features.extend(matching_features)
+
+    priority_features = list(set(priority_features))  # 重複排除
+    existing_priority_features = [f for f in priority_features if f in X_train.columns]
+
+    print(f"優先特徴量を{len(existing_priority_features)}個特定しました")
+
+    # 2. 残りの特徴量から重要度ベースで選択
+    remaining_features = [f for f in feature_names if f not in existing_priority_features and f in X_train.columns]
+
+    if len(remaining_features) > 0:
+        # 特徴量選択用モデル
+        selection_model = lgb.LGBMRegressor(
+            n_estimators=100,
+            learning_rate=0.01,
+            max_depth=3,
+            min_child_samples=30,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_alpha=0.01,
+            reg_lambda=0.05,
+            random_state=42,
+            importance_type='gain',
+            verbose=-1
+        )
+
+        # 閾値の処理
+        selector_threshold = threshold
+        if isinstance(threshold, str) and '%' in threshold:
+            try:
+                selector_threshold = float(threshold.strip('%')) / 100.0
+            except ValueError:
+                selector_threshold = 'mean'
+
+        selector = SelectFromModel(selection_model, threshold=selector_threshold)
+
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+
+                # 残りの特徴量でモデルを訓練
+                X_remaining = X_train[remaining_features]
+
+                # 重みの計算（温度変化の大きさに基づく）
+                temp_changes = y_train.diff().abs().fillna(0)
+                weights = 1 + temp_changes / (temp_changes.mean() + 1e-8)
+                weights = weights.clip(upper=3.0)  # スパイクの影響を制限
+
+                # 特徴量選択の実行
+                selector.fit(X_remaining, y_train, sample_weight=weights)
+
+            # 選択された特徴量
+            feature_mask = selector.get_support()
+            selected_remaining = [remaining_features[i] for i, selected in enumerate(feature_mask) if selected]
+
+            print(f"重要度ベースで{len(selected_remaining)}個の特徴量を追加選択しました")
+
+        except Exception as e:
+            print(f"重要度ベース選択中にエラー: {e}")
+            # エラーの場合は上位の特徴量を適当に選択
+            max_remaining = min(len(remaining_features), 20)
+            selected_remaining = remaining_features[:max_remaining]
+            print(f"エラーのため上位{len(selected_remaining)}個の特徴量を使用します")
+    else:
+        selected_remaining = []
+
+    # 3. 最終的な特徴量リストの作成
+    final_features = existing_priority_features + selected_remaining
+    final_features = [f for f in final_features if f in X_train.columns]  # 存在確認
+
+    # 4. 結果の返却
+    X_train_selected = X_train[final_features]
+    X_test_selected = X_test[final_features]
+
+    print(f"最終選択特徴量: {len(final_features)}個")
+    print(f"  - 優先特徴量: {len(existing_priority_features)}個")
+    print(f"  - 重要度ベース: {len(selected_remaining)}個")
+
+    return X_train_selected, X_test_selected, final_features
+
+
+def create_optimized_features_pipeline(df, zone_nums, horizons_minutes, time_diff_seconds,
+                                      is_prediction_mode=False, use_enhanced_selection=True,
+                                      smoothing_window=5, feature_selection_threshold='25%'):
+    """
+    最適化された特徴量作成パイプライン
+    要求された処理を統合して実行
+
+    Parameters:
+    -----------
+    df : DataFrame
+        時系列インデックスを持つデータフレーム
+    zone_nums : list
+        ゾーン番号のリスト
+    horizons_minutes : list
+        予測ホライゾン（分）のリスト
+    time_diff_seconds : int または float
+        データのサンプリング間隔（秒）
+    is_prediction_mode : bool
+        予測モード時はTrueを指定
+    use_enhanced_selection : bool
+        改良された特徴量選択を使用するかどうか
+    smoothing_window : int
+        移動平均のウィンドウサイズ
+    feature_selection_threshold : str or float
+        特徴量選択の閾値
+
+    Returns:
+    --------
+    df_processed : DataFrame
+        処理済みデータフレーム
+    selected_features : list
+        選択された特徴量名のリスト
+    feature_info : dict
+        作成された特徴量の詳細情報
+    """
+    print("=== 最適化された特徴量エンジニアリングパイプライン開始 ===")
+
+    # 統合特徴量作成
+    df_processed, all_created_features = create_important_features(
+        df, zone_nums, horizons_minutes, time_diff_seconds, is_prediction_mode
+    )
+
+    # 物理ベース特徴量も追加
+    df_processed, physics_features = create_physics_based_features(df_processed, zone_nums)
+    all_created_features.extend(physics_features)
+
+    # 重複排除
+    all_created_features = list(set(all_created_features))
+
+    # 実際に存在する特徴量のみをフィルタリング
+    existing_features = [f for f in all_created_features if f in df_processed.columns]
+
+    print(f"作成された特徴量総数: {len(existing_features)}個")
+
+    # 特徴量の詳細情報
+    feature_info = {
+        'total_features': len(existing_features),
+        'smoothed_features': [f for f in existing_features if 'smoothed' in f],
+        'thermo_features': [f for f in existing_features if 'thermo_state' in f],
+        'future_features': [f for f in existing_features if 'future' in f],
+        'physics_features': [f for f in existing_features if any(p in f for p in ['rate', 'diff', 'interaction'])],
+        'environmental_features': [f for f in existing_features if any(p in f for p in ['atmospheric', 'solar', 'radiation'])]
+    }
+
+    print("特徴量カテゴリ別の詳細:")
+    for category, features in feature_info.items():
+        if category != 'total_features':
+            print(f"  - {category}: {len(features)}個")
+
+    return df_processed, existing_features, feature_info
+
+
+"""
+使用例:
+
+# 基本的な使用法
+df_processed, selected_features, feature_info = create_optimized_features_pipeline(
+    df=data_df,
+    zone_nums=[1, 2, 3],
+    horizons_minutes=[10, 15],
+    time_diff_seconds=300,  # 5分間隔
+    is_prediction_mode=False,  # 学習時
+    smoothing_window=5,
+    feature_selection_threshold='25%'
+)
+
+# 特徴量選択の実行（改良版を使用）
+X_train_selected, X_test_selected, final_features = select_important_features_enhanced(
+    X_train=X_train[selected_features],
+    y_train=y_train,
+    X_test=X_test[selected_features],
+    feature_names=selected_features,
+    threshold='25%'
+)
+
+# 処理内容:
+# 1. 温度・湿度のノイズ対策（移動平均）
+# 2. サーモ状態の作成（AC_setとAC_tempを統合）
+# 3. 未来の制御パラメータ・環境データの作成
+# 4. 重要特徴量の優先選択
+# 5. AC_setやAC_tempの除外（サーモ状態に一本化）
+
+重要特徴量パターン:
+- 外気温: atmospheric.*temperature
+- 日射量: solar.*radiation
+- サーモ状態: thermo_state
+- 発停・モード: AC_valid, AC_mode
+- 平滑化データ: *_smoothed
+- 未来情報: *_future_*min
+"""
