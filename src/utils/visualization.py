@@ -11,18 +11,89 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.dates as mdates
+import matplotlib.font_manager as fm
 import math
 import os
 from src.config import OUTPUT_DIR
 from sklearn.metrics import r2_score
 
 
+# 日本語フォント設定の強化
+def setup_japanese_font():
+    """
+    日本語フォントの設定を行う（強化版）
+    """
+    # 利用可能な日本語フォントを検索（優先順位付き）
+    japanese_fonts = [
+        'Hiragino Sans',
+        'Hiragino Kaku Gothic Pro',
+        'Yu Gothic',
+        'Meiryo',
+        'IPAexGothic',
+        'IPAGothic',
+        'MS Gothic',
+        'Takao Gothic',
+        'VL Gothic',
+        'Noto Sans CJK JP'
+    ]
+
+    # システムで利用可能なフォント一覧を取得
+    available_fonts = [f.name for f in fm.fontManager.ttflist]
+
+    # 利用可能な日本語フォントを見つける
+    selected_font = None
+    for font in japanese_fonts:
+        if font in available_fonts:
+            selected_font = font
+            break
+
+    # フォント設定を強制的に適用
+    if selected_font:
+        plt.rcParams['font.family'] = [selected_font]
+        plt.rcParams['font.sans-serif'] = [selected_font] + japanese_fonts
+        print(f"日本語フォント設定: {selected_font}")
+    else:
+        # macOSの場合のフォールバック
+        import platform
+        if platform.system() == 'Darwin':  # macOS
+            plt.rcParams['font.family'] = ['Hiragino Sans']
+            plt.rcParams['font.sans-serif'] = ['Hiragino Sans', 'Arial Unicode MS']
+            print("macOS用フォント設定: Hiragino Sans")
+        else:
+            # その他のシステム用フォールバック
+            plt.rcParams['font.family'] = ['DejaVu Sans']
+            plt.rcParams['font.sans-serif'] = japanese_fonts + ['DejaVu Sans', 'Arial']
+            print("フォールバック設定を使用")
+
+    # 重要な設定を強制適用
+    plt.rcParams['axes.unicode_minus'] = False
+    plt.rcParams['figure.autolayout'] = True
+
+    # 設定確認のためのテスト
+    try:
+        fig, ax = plt.subplots(figsize=(1, 1))
+        ax.text(0.5, 0.5, 'テスト', fontsize=12)
+        plt.close(fig)
+        print("✅ 日本語フォント設定テスト成功")
+    except Exception as e:
+        print(f"⚠️ フォント設定テストで警告: {e}")
+
+# フォント設定を実行
+setup_japanese_font()
+
 # グラフ設定
 sns.set_theme(style="whitegrid", palette="colorblind")
-# フォント設定 - 日本語フォント対応（警告を減らすため、一般的なフォントのみ指定）
-plt.rcParams['font.family'] = ['sans-serif']
-plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans', 'Helvetica', 'Hiragino Sans GB', 'MS Gothic', 'IPAGothic', 'IPAexGothic', 'IPAPGothic']
-plt.rcParams['axes.unicode_minus'] = False
+
+# 追加のmatplotlib設定
+plt.rcParams.update({
+    'font.size': 10,
+    'axes.titlesize': 12,
+    'axes.labelsize': 11,
+    'xtick.labelsize': 9,
+    'ytick.labelsize': 9,
+    'legend.fontsize': 10,
+    'figure.titlesize': 14
+})
 
 
 def plot_feature_importance(feature_importance, zone, horizon, save_dir=None, top_n=15, save=True):
@@ -217,7 +288,7 @@ def plot_scatter_actual_vs_predicted_by_horizon(results_dict, horizon, save_dir=
             else:
                 predicted_valid = np.array(predicted)[valid_indices]
         except Exception as e:
-            print(f"Error processing data for zone {zone}: {e}")
+            print(f"Error processing data for Zone {zone}: {e}")
             axs[i].text(0.5, 0.5, f'Data processing error: {str(e)[:30]}...',
                       ha='center', va='center', transform=axs[i].transAxes)
             continue
@@ -482,7 +553,7 @@ def plot_time_series_by_horizon(results_dict, horizon, save_dir=None, points=100
             valid_indices = ~(pd.isna(actual) | pd.isna(predicted) |
                               np.isinf(actual) | np.isinf(predicted))
 
-            timestamps_valid = timestamps[valid_indices] if len(timestamps) > 0 else pd.DatetimeIndex([])
+            timestamps_valid = timestamps[valid_indices]
 
             if isinstance(actual, pd.Series):
                 actual_valid = actual[valid_indices]
@@ -767,3 +838,841 @@ def plot_response_delay_analysis(results_dict, horizon, save=True):
         print(f"Response delay analysis graph saved for {horizon}-min horizon: {output_path}")
 
     return fig
+
+
+def plot_enhanced_detailed_time_series(timestamps, actual, predicted, zone, horizon,
+                                      save_dir=None, time_scale='day', data_period_days=7,
+                                      show_lag_analysis=True, lag_dependency=None, save=True):
+    """
+    改善された詳細時系列プロット（文字化け修正・直感的レイアウト）
+
+    Parameters:
+    -----------
+    timestamps : array-like
+        時系列のタイムスタンプ
+    actual : Series
+        実測値
+    predicted : array-like
+        予測値
+    zone : int
+        ゾーン番号
+    horizon : int
+        予測ホライゾン（分）
+    save_dir : str, optional
+        グラフ保存ディレクトリ
+    time_scale : str, optional
+        時間軸のスケール ('hour', 'day', 'week')
+    data_period_days : int, optional
+        表示するデータ期間（日数）
+    show_lag_analysis : bool, optional
+        LAG依存度分析を表示するか
+    lag_dependency : dict, optional
+        LAG依存度情報
+    save : bool, optional
+        グラフを保存するか
+
+    Returns:
+    --------
+    matplotlib.figure.Figure
+        プロットのFigureオブジェクト
+    """
+    # フォントプロパティを定義
+    font_prop = fm.FontProperties()
+    try:
+        # 利用可能な日本語フォントを取得
+        japanese_fonts = ['Hiragino Sans', 'Hiragino Kaku Gothic Pro', 'Yu Gothic', 'Meiryo']
+        available_fonts = [f.name for f in fm.fontManager.ttflist]
+        selected_font = None
+        for font in japanese_fonts:
+            if font in available_fonts:
+                selected_font = font
+                break
+
+        if selected_font:
+            font_prop.set_family(selected_font)
+        else:
+            # macOSのデフォルト
+            font_prop.set_family('Hiragino Sans')
+    except:
+        pass
+
+    # NaN値をフィルタ
+    valid_indices = ~(pd.isna(actual) | pd.isna(predicted))
+    timestamps_valid = timestamps[valid_indices]
+    actual_valid = actual[valid_indices]
+    predicted_valid = predicted[valid_indices]
+
+    if len(timestamps_valid) == 0:
+        print(f"ゾーン {zone}: 有効なデータがありません")
+        return None
+
+    # データ期間の制限
+    if len(timestamps_valid) > 0:
+        end_time = timestamps_valid[-1]
+        start_time = end_time - pd.Timedelta(days=data_period_days)
+
+        period_mask = (timestamps_valid >= start_time) & (timestamps_valid <= end_time)
+        timestamps_period = timestamps_valid[period_mask]
+        actual_period = actual_valid[period_mask]
+        predicted_period = predicted_valid[period_mask]
+
+        if len(timestamps_period) == 0:
+            timestamps_period = timestamps_valid
+            actual_period = actual_valid
+            predicted_period = predicted_valid
+    else:
+        timestamps_period = timestamps_valid
+        actual_period = actual_valid
+        predicted_period = predicted_valid
+
+    # 誤差の計算
+    error_period = actual_period - predicted_period
+    abs_error_period = np.abs(error_period)
+
+    # レイアウト設定
+    if show_lag_analysis and lag_dependency:
+        fig = plt.figure(figsize=(18, 12))
+        gs = fig.add_gridspec(4, 3, height_ratios=[4, 2, 1.5, 1.5], width_ratios=[2, 1, 1], hspace=0.4, wspace=0.3)
+
+        # メイン時系列プロット（上段全体）
+        ax_main = fig.add_subplot(gs[0, :])
+        # 誤差時系列（2段目左）
+        ax_error_ts = fig.add_subplot(gs[1, :2])
+        # 誤差分布（2段目右）
+        ax_error_dist = fig.add_subplot(gs[1, 2])
+        # LAG依存度分析（3段目左）
+        ax_lag = fig.add_subplot(gs[2, 0])
+        # 散布図（3段目中央）
+        ax_scatter = fig.add_subplot(gs[2, 1])
+        # 統計情報（3段目右）
+        ax_stats = fig.add_subplot(gs[2, 2])
+        # 時間遅れ分析（4段目全体）
+        ax_delay = fig.add_subplot(gs[3, :])
+    else:
+        fig, ax_main = plt.subplots(figsize=(16, 8))
+
+    # メイン時系列プロット（改善版）
+    # 実測値を太い青線で
+    ax_main.plot(timestamps_period, actual_period, 'b-', linewidth=2.5,
+                label='実測値', alpha=0.9, zorder=3)
+    # 予測値を赤い破線で
+    ax_main.plot(timestamps_period, predicted_period, 'r--', linewidth=2.0,
+                label='予測値', alpha=0.8, zorder=2)
+
+    # 誤差の帯グラフ（薄いグレー）
+    ax_main.fill_between(timestamps_period, actual_period, predicted_period,
+                        alpha=0.3, color='gray', label='予測誤差', zorder=1)
+
+    # X軸の時間フォーマット設定（統一された見やすい形式）
+    if time_scale == 'hour':
+        ax_main.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+        ax_main.xaxis.set_minor_locator(mdates.HourLocator(interval=1))
+        ax_main.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d\n%H:%M'))
+    elif time_scale == 'day':
+        ax_main.xaxis.set_major_locator(mdates.HourLocator(interval=6))
+        ax_main.xaxis.set_minor_locator(mdates.HourLocator(interval=3))
+        ax_main.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d\n%H:%M'))
+    elif time_scale == 'week':
+        ax_main.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+        ax_main.xaxis.set_minor_locator(mdates.HourLocator(interval=12))
+        ax_main.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+
+    ax_main.tick_params(axis='x', rotation=45, labelsize=10)
+    ax_main.set_xlabel('日時', fontproperties=font_prop, fontsize=12, fontweight='bold')
+    ax_main.set_ylabel('温度 (°C)', fontproperties=font_prop, fontsize=12, fontweight='bold')
+
+    # タイトルの改善
+    title = f'ゾーン {zone} - {horizon}分後予測の詳細分析\n'
+    title += f'期間: {data_period_days}日間 | 時間軸: {time_scale} | データ点数: {len(timestamps_period)}'
+    ax_main.set_title(title, fontproperties=font_prop, fontsize=14, fontweight='bold', pad=20)
+
+    ax_main.grid(True, linestyle='--', alpha=0.7)
+    legend = ax_main.legend(fontsize=11, loc='upper right', framealpha=0.9)
+    # 凡例のフォントも設定
+    for text in legend.get_texts():
+        text.set_fontproperties(font_prop)
+
+    # 詳細分析プロット（LAG分析が有効な場合）
+    if show_lag_analysis and lag_dependency:
+
+        # 1. 誤差時系列プロット
+        ax_error_ts.plot(timestamps_period, error_period, 'purple', linewidth=1.5, alpha=0.8)
+        ax_error_ts.axhline(y=0, color='black', linestyle='-', alpha=0.5)
+        ax_error_ts.fill_between(timestamps_period, 0, error_period,
+                               where=(error_period > 0), color='red', alpha=0.3, label='過大予測')
+        ax_error_ts.fill_between(timestamps_period, 0, error_period,
+                               where=(error_period < 0), color='blue', alpha=0.3, label='過小予測')
+        ax_error_ts.set_ylabel('予測誤差 (°C)', fontproperties=font_prop, fontsize=10)
+        ax_error_ts.set_title('予測誤差の時系列変化', fontproperties=font_prop, fontsize=11, fontweight='bold')
+        ax_error_ts.grid(True, alpha=0.3)
+        legend_error = ax_error_ts.legend(fontsize=9)
+        for text in legend_error.get_texts():
+            text.set_fontproperties(font_prop)
+        ax_error_ts.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
+        ax_error_ts.tick_params(axis='x', rotation=45, labelsize=8)
+
+        # 2. 誤差分布ヒストグラム
+        ax_error_dist.hist(abs_error_period, bins=25, alpha=0.7, color='skyblue',
+                          edgecolor='black', density=True)
+        ax_error_dist.set_xlabel('絶対誤差 (°C)', fontproperties=font_prop, fontsize=10)
+        ax_error_dist.set_ylabel('密度', fontproperties=font_prop, fontsize=10)
+        ax_error_dist.set_title('誤差分布', fontproperties=font_prop, fontsize=11, fontweight='bold')
+
+        # 統計情報を追加
+        mae = np.mean(abs_error_period)
+        rmse = np.sqrt(np.mean(error_period**2))
+        ax_error_dist.axvline(mae, color='red', linestyle='--', linewidth=2, label=f'MAE: {mae:.3f}°C')
+        ax_error_dist.axvline(rmse, color='orange', linestyle='--', linewidth=2, label=f'RMSE: {rmse:.3f}°C')
+        legend_dist = ax_error_dist.legend(fontsize=9)
+        for text in legend_dist.get_texts():
+            text.set_fontproperties(font_prop)
+        ax_error_dist.grid(True, alpha=0.3)
+
+        # 3. LAG依存度分析（改善版）
+        lag_categories = ['直接LAG\n特徴量', '移動平均\n特徴量', '総LAG\n依存度']
+        lag_values = [
+            lag_dependency.get('direct_lag_dependency', 0),
+            lag_dependency.get('rolling_features_dependency', 0),
+            lag_dependency.get('total_lag_dependency', 0)
+        ]
+
+        colors = ['red' if val > 30 else 'orange' if val > 15 else 'green' for val in lag_values]
+        bars = ax_lag.bar(lag_categories, lag_values, color=colors, alpha=0.8, edgecolor='black')
+
+        # 値をバーの上に表示
+        for bar, val in zip(bars, lag_values):
+            ax_lag.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
+                       f'{val:.1f}%', ha='center', va='bottom', fontsize=10, fontweight='bold')
+
+        # ラベルにフォントを適用
+        for label in ax_lag.get_xticklabels():
+            label.set_fontproperties(font_prop)
+
+        ax_lag.set_ylabel('依存度 (%)', fontproperties=font_prop, fontsize=10)
+        ax_lag.set_title('LAG依存度分析', fontproperties=font_prop, fontsize=11, fontweight='bold')
+        ax_lag.set_ylim(0, max(50, max(lag_values) * 1.3))
+        ax_lag.axhline(y=30, color='red', linestyle='--', alpha=0.7, label='警告閾値')
+        ax_lag.axhline(y=15, color='orange', linestyle='--', alpha=0.7, label='注意閾値')
+        legend_lag = ax_lag.legend(fontsize=8)
+        for text in legend_lag.get_texts():
+            text.set_fontproperties(font_prop)
+        ax_lag.grid(True, alpha=0.3)
+
+        # 4. 散布図（実測値 vs 予測値）
+        ax_scatter.scatter(actual_period, predicted_period, alpha=0.6, s=20, c='blue', edgecolors='black', linewidth=0.5)
+
+        # 理想線（y=x）
+        min_val = min(actual_period.min(), predicted_period.min())
+        max_val = max(actual_period.max(), predicted_period.max())
+        ax_scatter.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='理想線')
+
+        ax_scatter.set_xlabel('実測値 (°C)', fontproperties=font_prop, fontsize=10)
+        ax_scatter.set_ylabel('予測値 (°C)', fontproperties=font_prop, fontsize=10)
+        ax_scatter.set_title('実測値 vs 予測値', fontproperties=font_prop, fontsize=11, fontweight='bold')
+        ax_scatter.grid(True, alpha=0.3)
+        legend_scatter = ax_scatter.legend(fontsize=9)
+        for text in legend_scatter.get_texts():
+            text.set_fontproperties(font_prop)
+
+        # R²を表示
+        r2 = r2_score(actual_period, predicted_period)
+        ax_scatter.text(0.05, 0.95, f'R² = {r2:.4f}', transform=ax_scatter.transAxes,
+                       bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
+                       fontsize=10, fontweight='bold')
+
+        # 5. 統計情報表示
+        ax_stats.axis('off')
+        stats_text = f"""統計情報:
+
+データ点数: {len(timestamps_period):,}
+平均絶対誤差: {mae:.3f}°C
+二乗平均平方根誤差: {rmse:.3f}°C
+決定係数: {r2:.4f}
+
+実測値:
+  平均: {np.mean(actual_period):.2f}°C
+  標準偏差: {np.std(actual_period):.2f}°C
+
+予測値:
+  平均: {np.mean(predicted_period):.2f}°C
+  標準偏差: {np.std(predicted_period):.2f}°C"""
+
+        ax_stats.text(0.05, 0.95, stats_text, transform=ax_stats.transAxes,
+                     fontproperties=font_prop, fontsize=9, verticalalignment='top',
+                     bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.8))
+
+        # 6. 時間遅れ分析（改善版）
+        _plot_enhanced_lag_analysis(timestamps_period, actual_period, predicted_period, ax_delay, horizon, font_prop)
+
+    plt.tight_layout()
+
+    # グラフの保存
+    if save and save_dir:
+        filename = f'enhanced_detailed_timeseries_zone_{zone}_horizon_{horizon}_{time_scale}_{data_period_days}days.png'
+        output_path = os.path.join(save_dir, filename)
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        print(f"改善版詳細時系列プロット保存: {output_path}")
+
+    return fig
+
+
+def _plot_enhanced_lag_analysis(timestamps, actual, predicted, ax, horizon, font_prop):
+    """
+    改善された時間遅れ分析のプロット
+
+    Parameters:
+    -----------
+    timestamps : array-like
+        タイムスタンプ
+    actual : array-like
+        実測値
+    predicted : array-like
+        予測値
+    ax : matplotlib.axes.Axes
+        プロット用のAxes
+    horizon : int
+        予測ホライゾン（分）
+    font_prop : matplotlib.font_manager.FontProperties
+        フォントプロパティ
+    """
+    if len(actual) > 100:
+        # データの正規化
+        actual_norm = (actual - np.mean(actual)) / (np.std(actual) + 1e-8)
+        predicted_norm = (predicted - np.mean(predicted)) / (np.std(predicted) + 1e-8)
+
+        # 相互相関の計算
+        max_lag = min(50, len(actual) // 4)
+        correlations = []
+        lags = range(-max_lag, max_lag + 1)
+
+        for lag in lags:
+            try:
+                if lag < 0:
+                    corr = np.corrcoef(actual_norm[-lag:], predicted_norm[:lag])[0, 1]
+                elif lag > 0:
+                    corr = np.corrcoef(actual_norm[:-lag], predicted_norm[lag:])[0, 1]
+                else:
+                    corr = np.corrcoef(actual_norm, predicted_norm)[0, 1]
+
+                if not np.isnan(corr):
+                    correlations.append(corr)
+                else:
+                    correlations.append(0)
+            except:
+                correlations.append(0)
+
+        # 相互相関のプロット（改善版）
+        ax.plot(lags, correlations, 'b-', linewidth=2.5, alpha=0.8)
+        ax.fill_between(lags, 0, correlations, alpha=0.3, color='blue')
+
+        # 重要な線を追加
+        ax.axvline(x=0, color='red', linestyle='-', linewidth=2, alpha=0.8, label='遅れなし')
+        ax.axhline(y=0, color='black', linestyle='-', alpha=0.5)
+
+        # 最大相関を持つ遅れを検出
+        max_corr_idx = np.argmax(correlations)
+        optimal_lag = lags[max_corr_idx]
+        max_correlation = correlations[max_corr_idx]
+
+        ax.axvline(x=optimal_lag, color='green', linestyle='--', linewidth=2, alpha=0.8,
+                  label=f'最適遅れ: {optimal_lag}ステップ')
+
+        # ラベルとタイトル
+        ax.set_xlabel('遅れ（データポイント）', fontproperties=font_prop, fontsize=11, fontweight='bold')
+        ax.set_ylabel('相互相関係数', fontproperties=font_prop, fontsize=11, fontweight='bold')
+        ax.set_title(f'時間遅れ分析 (最大相関: {max_correlation:.3f}, 最適遅れ: {optimal_lag}ステップ)',
+                    fontproperties=font_prop, fontsize=12, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        legend_delay = ax.legend(fontsize=10)
+        for text in legend_delay.get_texts():
+            text.set_fontproperties(font_prop)
+
+        # 警告メッセージの改善
+        if optimal_lag > 0:
+            warning_text = f"⚠️ 予測が{optimal_lag}ステップ({optimal_lag*5}分)遅れています"
+            ax.text(0.02, 0.98, warning_text, transform=ax.transAxes,
+                   fontproperties=font_prop,
+                   bbox=dict(boxstyle="round,pad=0.5", facecolor="yellow", alpha=0.9),
+                   verticalalignment='top', fontsize=10, fontweight='bold')
+        elif optimal_lag < 0:
+            warning_text = f"📈 予測が{abs(optimal_lag)}ステップ({abs(optimal_lag)*5}分)先行しています"
+            ax.text(0.02, 0.98, warning_text, transform=ax.transAxes,
+                   fontproperties=font_prop,
+                   bbox=dict(boxstyle="round,pad=0.5", facecolor="lightblue", alpha=0.9),
+                   verticalalignment='top', fontsize=10, fontweight='bold')
+        else:
+            success_text = "✅ 時間遅れは検出されませんでした"
+            ax.text(0.02, 0.98, success_text, transform=ax.transAxes,
+                   fontproperties=font_prop,
+                   bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgreen", alpha=0.9),
+                   verticalalignment='top', fontsize=10, fontweight='bold')
+    else:
+        ax.text(0.5, 0.5, 'データ不足のため分析不可\n(最低100データポイント必要)',
+               ha='center', va='center', transform=ax.transAxes,
+               fontproperties=font_prop, fontsize=12, fontweight='bold',
+               bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.8))
+
+
+def plot_enhanced_detailed_time_series_by_horizon(results_dict, horizon, save_dir=None,
+                                                 time_scale='day', data_period_days=7,
+                                                 show_lag_analysis=True, save=True):
+    """
+    改善された全ゾーンの詳細時系列プロット
+
+    Parameters:
+    -----------
+    results_dict : dict
+        各ゾーンの結果を含む辞書
+    horizon : int
+        予測ホライゾン（分）
+    save_dir : str, optional
+        グラフ保存ディレクトリ
+    time_scale : str, optional
+        時間軸のスケール ('hour', 'day', 'week')
+    data_period_days : int, optional
+        表示するデータ期間（日数）
+    show_lag_analysis : bool, optional
+        LAG依存度分析を表示するか
+    save : bool, optional
+        グラフを保存するか
+
+    Returns:
+    --------
+    matplotlib.figure.Figure
+        プロットのFigureオブジェクト
+    """
+    # フォントプロパティを定義
+    font_prop = fm.FontProperties()
+    try:
+        # 利用可能な日本語フォントを取得
+        japanese_fonts = ['Hiragino Sans', 'Hiragino Kaku Gothic Pro', 'Yu Gothic', 'Meiryo']
+        available_fonts = [f.name for f in fm.fontManager.ttflist]
+        selected_font = None
+        for font in japanese_fonts:
+            if font in available_fonts:
+                selected_font = font
+                break
+
+        if selected_font:
+            font_prop.set_family(selected_font)
+        else:
+            # macOSのデフォルト
+            font_prop.set_family('Hiragino Sans')
+    except:
+        pass
+
+    # データが利用可能なゾーンを収集
+    zones_with_data = []
+    for zone, zone_results in results_dict.items():
+        if horizon in zone_results:
+            zones_with_data.append(zone)
+
+    if not zones_with_data:
+        print(f"警告: {horizon}分予測のデータが利用できません。スキップします。")
+        return None
+
+    # サブプロットのレイアウト計算（改善版）
+    n_zones = len(zones_with_data)
+    if n_zones == 1:
+        n_cols, n_rows = 1, 1
+        fig_size = (16, 10)
+    elif n_zones <= 2:
+        n_cols, n_rows = 2, 1
+        fig_size = (20, 10)
+    elif n_zones <= 4:
+        n_cols, n_rows = 2, 2
+        fig_size = (20, 16)
+    else:
+        n_cols = 3
+        n_rows = math.ceil(n_zones / n_cols)
+        fig_size = (24, n_rows * 8)
+
+    # サブプロット作成
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=fig_size, squeeze=False)
+    axs = axs.flatten()
+
+    for i, zone in enumerate(sorted(zones_with_data)):
+        zone_results = results_dict.get(zone, {})
+        horizon_results = zone_results.get(horizon, {})
+
+        # データの取得
+        timestamps = None
+        actual = None
+        predicted = None
+        lag_dependency = horizon_results.get('lag_dependency', {})
+
+        # データ取得の試行
+        if all(k in horizon_results for k in ['test_df', 'test_y', 'test_predictions']):
+            test_df = horizon_results['test_df']
+            if isinstance(test_df, pd.DataFrame) and hasattr(test_df, 'index'):
+                timestamps = test_df.index
+                actual = horizon_results['test_y']
+                predicted = horizon_results['test_predictions']
+
+        if timestamps is None or actual is None or predicted is None:
+            print(f"ゾーン {zone} のデータが見つかりません")
+            axs[i].text(0.5, 0.5, 'データなし', ha='center', va='center',
+                       transform=axs[i].transAxes, fontproperties=font_prop,
+                       fontsize=14, fontweight='bold')
+            continue
+
+        # 有効データのフィルタリング
+        try:
+            valid_indices = ~(pd.isna(actual) | pd.isna(predicted) |
+                             np.isinf(actual) | np.isinf(predicted))
+
+            timestamps_valid = timestamps[valid_indices]
+            actual_valid = actual[valid_indices]
+            predicted_valid = predicted[valid_indices]
+        except Exception as e:
+            print(f"ゾーン {zone} のデータ処理エラー: {e}")
+            axs[i].text(0.5, 0.5, 'データ処理エラー', ha='center', va='center',
+                       transform=axs[i].transAxes, fontproperties=font_prop,
+                       fontsize=14, fontweight='bold')
+            continue
+
+        if len(actual_valid) == 0:
+            axs[i].text(0.5, 0.5, '有効データなし', ha='center', va='center',
+                       transform=axs[i].transAxes, fontproperties=font_prop,
+                       fontsize=14, fontweight='bold')
+            continue
+
+        # データ期間の制限
+        if len(timestamps_valid) > 0:
+            end_time = timestamps_valid[-1]
+            start_time = end_time - pd.Timedelta(days=data_period_days)
+
+            period_mask = (timestamps_valid >= start_time) & (timestamps_valid <= end_time)
+            timestamps_period = timestamps_valid[period_mask]
+            actual_period = actual_valid[period_mask]
+            predicted_period = predicted_valid[period_mask]
+
+            if len(timestamps_period) == 0:
+                timestamps_period = timestamps_valid
+                actual_period = actual_valid
+                predicted_period = predicted_valid
+
+        # 改善された時系列プロット
+        try:
+            # 実測値（太い青線）
+            axs[i].plot(timestamps_period, actual_period, 'b-', linewidth=2.5,
+                       label='実測値', alpha=0.9, zorder=3)
+            # 予測値（赤い破線）
+            axs[i].plot(timestamps_period, predicted_period, 'r--', linewidth=2.0,
+                       label='予測値', alpha=0.8, zorder=2)
+
+            # 誤差の帯グラフ
+            axs[i].fill_between(timestamps_period, actual_period, predicted_period,
+                               alpha=0.3, color='gray', label='予測誤差', zorder=1)
+
+            # X軸の時間フォーマット設定（統一）
+            if time_scale == 'hour':
+                axs[i].xaxis.set_major_locator(mdates.HourLocator(interval=3))
+                axs[i].xaxis.set_minor_locator(mdates.HourLocator(interval=1))
+                axs[i].xaxis.set_major_formatter(mdates.DateFormatter('%m-%d\n%H:%M'))
+            elif time_scale == 'day':
+                axs[i].xaxis.set_major_locator(mdates.HourLocator(interval=12))
+                axs[i].xaxis.set_minor_locator(mdates.HourLocator(interval=6))
+                axs[i].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d\n%H:%M'))
+            elif time_scale == 'week':
+                axs[i].xaxis.set_major_locator(mdates.DayLocator(interval=1))
+                axs[i].xaxis.set_minor_locator(mdates.HourLocator(interval=12))
+                axs[i].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+
+            axs[i].tick_params(axis='x', rotation=45, labelsize=9)
+        except Exception as e:
+            print(f"ゾーン {zone} のプロットエラー: {e}")
+            axs[i].text(0.5, 0.5, 'プロットエラー', ha='center', va='center',
+                       transform=axs[i].transAxes, fontproperties=font_prop,
+                       fontsize=14, fontweight='bold')
+            continue
+
+        # タイトルとグリッド（改善版）
+        title = f'ゾーン {zone}'
+        if show_lag_analysis and lag_dependency:
+            total_lag = lag_dependency.get('total_lag_dependency', 0)
+            if total_lag > 30:
+                title += f' ⚠️ LAG依存度高: {total_lag:.1f}%'
+                title_color = 'red'
+            elif total_lag > 15:
+                title += f' ⚠ LAG依存度中: {total_lag:.1f}%'
+                title_color = 'orange'
+            else:
+                title += f' ✓ LAG依存度低: {total_lag:.1f}%'
+                title_color = 'green'
+        else:
+            title_color = 'black'
+
+        axs[i].set_title(title, fontproperties=font_prop, fontsize=12, fontweight='bold', color=title_color)
+        axs[i].set_ylabel('温度 (°C)', fontproperties=font_prop, fontsize=11, fontweight='bold')
+        axs[i].grid(True, linestyle='--', alpha=0.7)
+        legend = axs[i].legend(loc='upper right', fontsize=10, framealpha=0.9)
+        for text in legend.get_texts():
+            text.set_fontproperties(font_prop)
+
+        # 統計情報をテキストボックスで表示
+        mae = np.mean(np.abs(actual_period - predicted_period))
+        r2 = r2_score(actual_period, predicted_period)
+        stats_text = f'MAE: {mae:.3f}°C\nR²: {r2:.3f}'
+        axs[i].text(0.02, 0.98, stats_text, transform=axs[i].transAxes,
+                   fontproperties=font_prop,
+                   bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
+                   verticalalignment='top', fontsize=9, fontweight='bold')
+
+    # 未使用のサブプロットを非表示
+    for j in range(n_zones, len(axs)):
+        fig.delaxes(axs[j])
+
+    # 全体タイトル（改善版）
+    main_title = f'{horizon}分後予測の詳細時系列分析\n'
+    main_title += f'時間軸: {time_scale} | 表示期間: {data_period_days}日間 | 対象ゾーン: {len(zones_with_data)}個'
+    fig.suptitle(main_title, fontproperties=font_prop, fontsize=16, fontweight='bold', y=0.98)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    # グラフの保存
+    if save and save_dir:
+        filename = f'enhanced_detailed_timeseries_all_zones_horizon_{horizon}_{time_scale}_{data_period_days}days.png'
+        output_path = os.path.join(save_dir, filename)
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        print(f"改善版詳細時系列プロット（全ゾーン）保存: {output_path}")
+
+    return fig
+
+
+def create_detailed_analysis_for_zone(results_dict, zone, horizon, save_dir=None,
+                                    time_scales=['hour', 'day'], data_periods=[3, 7]):
+    """
+    指定されたゾーンとホライゾンの詳細分析を複数の時間スケールで実行
+
+    Parameters:
+    -----------
+    results_dict : dict
+        各ゾーンの結果を含む辞書
+    zone : int
+        分析対象のゾーン番号
+    horizon : int
+        予測ホライゾン（分）
+    save_dir : str, optional
+        グラフ保存ディレクトリ
+    time_scales : list, optional
+        時間軸のスケールリスト
+    data_periods : list, optional
+        表示するデータ期間リスト（日数）
+
+    Returns:
+    --------
+    dict
+        生成された図のパスと分析結果
+    """
+    if zone not in results_dict or horizon not in results_dict[zone]:
+        print(f"ゾーン {zone}, ホライゾン {horizon}分 のデータが見つかりません")
+        return None
+
+    zone_results = results_dict[zone][horizon]
+
+    # データの取得
+    if not all(k in zone_results for k in ['test_df', 'test_y', 'test_predictions']):
+        print(f"必要なデータが不足しています: {list(zone_results.keys())}")
+        return None
+
+    test_df = zone_results['test_df']
+    test_y = zone_results['test_y']
+    test_predictions = zone_results['test_predictions']
+    lag_dependency = zone_results.get('lag_dependency', {})
+
+    # タイムスタンプの取得
+    if isinstance(test_df, pd.DataFrame) and hasattr(test_df, 'index'):
+        timestamps = test_df.index
+    else:
+        print("タイムスタンプが見つかりません")
+        return None
+
+    generated_files = {}
+    analysis_summary = {}
+
+    # 各時間スケールでの詳細分析
+    for time_scale, data_period in zip(time_scales, data_periods):
+        print(f"\n### ゾーン {zone}, {horizon}分後予測 - {time_scale}軸分析（{data_period}日間）")
+
+        # 詳細時系列プロット生成
+        fig = plot_enhanced_detailed_time_series(
+            timestamps=timestamps,
+            actual=test_y,
+            predicted=test_predictions,
+            zone=zone,
+            horizon=horizon,
+            save_dir=save_dir,
+            time_scale=time_scale,
+            data_period_days=data_period,
+            show_lag_analysis=True,
+            lag_dependency=lag_dependency,
+            save=True
+        )
+
+        if fig:
+            filename = f'enhanced_detailed_timeseries_zone_{zone}_horizon_{horizon}_{time_scale}_{data_period}days.png'
+            if save_dir:
+                file_path = os.path.join(save_dir, filename)
+                generated_files[f'{time_scale}_{data_period}days'] = file_path
+
+            print(f"✓ 詳細分析完了: {time_scale}軸, {data_period}日間")
+
+            # 分析結果の要約
+            valid_mask = ~(pd.isna(test_y) | pd.isna(test_predictions))
+            if valid_mask.sum() > 0:
+                actual_valid = test_y[valid_mask]
+                pred_valid = test_predictions[valid_mask]
+
+                mae = np.mean(np.abs(actual_valid - pred_valid))
+                rmse = np.sqrt(np.mean((actual_valid - pred_valid)**2))
+                r2 = r2_score(actual_valid, pred_valid)
+
+                analysis_summary[f'{time_scale}_{data_period}days'] = {
+                    'mae': mae,
+                    'rmse': rmse,
+                    'r2': r2,
+                    'data_points': valid_mask.sum()
+                }
+        else:
+            print(f"✗ 詳細分析失敗: {time_scale}軸, {data_period}日間")
+
+    # LAG依存度の詳細分析
+    print(f"\n### LAG依存度詳細分析:")
+    total_lag = lag_dependency.get('total_lag_dependency', 0)
+    direct_lag = lag_dependency.get('direct_lag_dependency', 0)
+    rolling_lag = lag_dependency.get('rolling_features_dependency', 0)
+
+    print(f"  総LAG依存度: {total_lag:.1f}%")
+    print(f"  直接LAG特徴量依存度: {direct_lag:.1f}%")
+    print(f"  移動平均特徴量依存度: {rolling_lag:.1f}%")
+
+    if total_lag > 30:
+        print("  ⚠️ 警告: LAG依存度が高すぎます（30%超）")
+        print("    → 予測が過去データに過度に依存している可能性があります")
+    elif total_lag > 15:
+        print("  ⚠ 注意: LAG依存度が中程度です（15-30%）")
+        print("    → 適度な過去情報の利用ですが、監視が必要です")
+    else:
+        print("  ✓ 良好: LAG依存度は低いレベルです（15%未満）")
+
+    return {
+        'generated_files': generated_files,
+        'analysis_summary': analysis_summary,
+        'lag_dependency': lag_dependency,
+        'zone': zone,
+        'horizon': horizon
+    }
+
+
+def generate_comprehensive_time_series_report(results_dict, save_dir=None,
+                                             focus_zones=None, focus_horizons=None):
+    """
+    時系列予測の包括的なレポート生成
+
+    Parameters:
+    -----------
+    results_dict : dict
+        各ゾーンの結果を含む辞書
+    save_dir : str, optional
+        レポート保存ディレクトリ
+    focus_zones : list, optional
+        重点的に分析するゾーンのリスト
+    focus_horizons : list, optional
+        重点的に分析するホライゾンのリスト
+
+    Returns:
+    --------
+    dict
+        レポートの要約と生成されたファイル情報
+    """
+    print("\n" + "="*60)
+    print("🕐 時系列予測モデル包括レポート生成開始")
+    print("="*60)
+
+    report_summary = {
+        'total_zones': 0,
+        'total_horizons': 0,
+        'high_lag_dependency': [],
+        'best_performance': {},
+        'generated_files': []
+    }
+
+    # 対象ゾーンとホライゾンの決定
+    all_zones = list(results_dict.keys())
+    all_horizons = []
+    for zone_results in results_dict.values():
+        all_horizons.extend(zone_results.keys())
+    all_horizons = sorted(list(set(all_horizons)))
+
+    target_zones = focus_zones if focus_zones else all_zones
+    target_horizons = focus_horizons if focus_horizons else all_horizons
+
+    report_summary['total_zones'] = len(target_zones)
+    report_summary['total_horizons'] = len(target_horizons)
+
+    print(f"📊 分析対象: {len(target_zones)}ゾーン × {len(target_horizons)}ホライゾン")
+    print(f"対象ゾーン: {target_zones}")
+    print(f"対象ホライゾン: {target_horizons}")
+
+    # 各ゾーン・ホライゾンの詳細分析
+    for zone in target_zones:
+        if zone not in results_dict:
+            continue
+
+        print(f"\n🔍 ゾーン {zone} の詳細分析:")
+
+        for horizon in target_horizons:
+            if horizon not in results_dict[zone]:
+                continue
+
+            # 詳細分析の実行
+            analysis_result = create_detailed_analysis_for_zone(
+                results_dict, zone, horizon, save_dir
+            )
+
+            if analysis_result:
+                # LAG依存度チェック
+                lag_dep = analysis_result['lag_dependency'].get('total_lag_dependency', 0)
+                if lag_dep > 30:
+                    report_summary['high_lag_dependency'].append({
+                        'zone': zone,
+                        'horizon': horizon,
+                        'lag_dependency': lag_dep
+                    })
+
+                # パフォーマンス評価
+                if 'analysis_summary' in analysis_result:
+                    for analysis_key, metrics in analysis_result['analysis_summary'].items():
+                        perf_key = f"zone_{zone}_horizon_{horizon}_{analysis_key}"
+                        report_summary['best_performance'][perf_key] = metrics
+
+                # ファイル記録
+                report_summary['generated_files'].extend(
+                    list(analysis_result['generated_files'].values())
+                )
+
+    # レポート要約の表示
+    print(f"\n" + "="*60)
+    print("📋 レポート要約")
+    print("="*60)
+
+    print(f"✅ 生成されたファイル数: {len(report_summary['generated_files'])}")
+
+    if report_summary['high_lag_dependency']:
+        print(f"⚠️ 高LAG依存度モデル ({len(report_summary['high_lag_dependency'])}個):")
+        for item in report_summary['high_lag_dependency']:
+            print(f"  - ゾーン {item['zone']}, {item['horizon']}分: {item['lag_dependency']:.1f}%")
+    else:
+        print("✓ 全モデルのLAG依存度は適切な範囲内です")
+
+    # 最高性能モデルの特定
+    if report_summary['best_performance']:
+        best_r2 = max(report_summary['best_performance'].values(), key=lambda x: x.get('r2', 0))
+        best_model_key = [k for k, v in report_summary['best_performance'].items() if v == best_r2][0]
+        print(f"🏆 最高性能モデル: {best_model_key}")
+        print(f"   R²: {best_r2['r2']:.4f}, RMSE: {best_r2['rmse']:.3f}°C")
+
+    print(f"\n📁 すべてのファイルは {save_dir} に保存されています")
+
+    return report_summary

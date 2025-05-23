@@ -62,7 +62,9 @@ from src.utils.visualization import (
     plot_time_series,
     plot_lag_dependency_analysis,
     plot_scatter_actual_vs_predicted_by_horizon,
-    plot_time_series_by_horizon
+    plot_time_series_by_horizon,
+    plot_enhanced_detailed_time_series,
+    plot_enhanced_detailed_time_series_by_horizon
 )
 
 
@@ -413,8 +415,71 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
         else:
             print(f"ホライゾン {horizon}分 の時系列プロット生成に失敗しました")
 
+    print("\n## 詳細時系列可視化（細かい時間軸設定・LAG依存度分析付き）を生成中...")
+    # 各時間スケールでの詳細可視化
+    time_scales = ['day', 'hour']  # 日単位と時間単位
+    data_periods = [7, 3]  # 7日間と3日間
+
+    for horizon in actual_horizons:
+        for time_scale, data_period in zip(time_scales, data_periods):
+            print(f"\n### ホライゾン {horizon}分 - 時間軸: {time_scale}, 期間: {data_period}日間")
+
+            # 詳細時系列プロット（全ゾーン）
+            detailed_fig = plot_enhanced_detailed_time_series_by_horizon(
+                results,
+                horizon,
+                save_dir=OUTPUT_DIR,
+                time_scale=time_scale,
+                data_period_days=data_period,
+                show_lag_analysis=True,
+                save=True
+            )
+
+            if detailed_fig:
+                print(f"✓ 詳細時系列プロット生成完了 ({time_scale}軸, {data_period}日間)")
+            else:
+                print(f"✗ 詳細時系列プロット生成失敗 ({time_scale}軸, {data_period}日間)")
+
+    # 週単位スケールでの長期視点可視化（代表的なホライゾンのみ）
+    representative_horizons = [15, 30] if len(actual_horizons) > 2 else actual_horizons
+    for horizon in representative_horizons:
+        print(f"\n### ホライゾン {horizon}分 - 長期視点（週単位）")
+
+        weekly_fig = plot_enhanced_detailed_time_series_by_horizon(
+            results,
+            horizon,
+            save_dir=OUTPUT_DIR,
+            time_scale='week',
+            data_period_days=14,  # 2週間
+            show_lag_analysis=True,
+            save=True
+        )
+
+        if weekly_fig:
+            print(f"✓ 週単位詳細時系列プロット生成完了")
+        else:
+            print(f"✗ 週単位詳細時系列プロット生成失敗")
+
     print("\n## すべてのモデルのトレーニングが完了しました")
     print(f"結果は {OUTPUT_DIR} ディレクトリに保存されています")
+
+    # 生成された可視化ファイルの概要表示
+    print(f"\n## 生成された可視化ファイル:")
+    print(f"  - 散布図: scatter_all_zones_horizon_*.png")
+    print(f"  - 基本時系列: timeseries_all_zones_horizon_*.png")
+    print(f"  - 詳細時系列（日軸）: detailed_timeseries_all_zones_horizon_*_day_*days.png")
+    print(f"  - 詳細時系列（時軸）: detailed_timeseries_all_zones_horizon_*_hour_*days.png")
+    print(f"  - 詳細時系列（週軸）: detailed_timeseries_all_zones_horizon_*_week_*days.png")
+    print(f"\n📊 LAG依存度分析結果:")
+    for zone in existing_zones:
+        if zone in results:
+            for horizon in actual_horizons:
+                if horizon in results[zone]:
+                    lag_dep = results[zone][horizon]['lag_dependency']
+                    total_lag = lag_dep.get('total_lag_dependency', 0)
+                    status = "⚠️高" if total_lag > 30 else "⚠中" if total_lag > 15 else "✓低"
+                    print(f"  ゾーン {zone}, {horizon}分: LAG依存度 {total_lag:.1f}% {status}")
+
     return results
 
 
