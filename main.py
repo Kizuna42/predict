@@ -31,8 +31,6 @@ from src.data.preprocessing import (
 
 # 特徴量エンジニアリング関数のインポート
 from src.data.feature_engineering import (
-    create_lag_features,
-    create_rolling_features,
     create_physics_based_features,
     create_future_explanatory_features,
     create_thermo_state_features,
@@ -157,6 +155,13 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
         df = df.drop(columns=power_cols)
         print(f"{len(power_cols)}個の電力系統データ列を削除しました")
 
+    # 不要な時間特徴量を削除（day_of_week, is_weekend等）
+    # 必要なのはhourのみ
+    time_cols_to_remove = [col for col in df.columns if col in ['day_of_week', 'is_weekend', 'day_of_year']]
+    if time_cols_to_remove:
+        df = df.drop(columns=time_cols_to_remove)
+        print(f"{len(time_cols_to_remove)}個の不要な時間特徴量を削除しました")
+
     print("\n## 目的変数の作成（将来温度の予測）")
 
     # 目的変数の作成
@@ -172,19 +177,10 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
     enhanced_smoothing_windows = SMOOTHING_WINDOWS + [18, 24]
     df_with_targets, smoothed_features = apply_smoothing_to_sensors(df_with_targets, enhanced_smoothing_windows)
 
-    # 時系列特徴量の作成
-    print("\n## 物理ベースの時系列特徴量を作成")
-    # LAG特徴量の作成（長期LAGを中心に）
-    df_with_targets, lag_cols = create_lag_features(df_with_targets, existing_zones)
-    # 移動平均特徴量の作成（物理的意味を持つものに変更）
-    df_with_targets, rolling_cols = create_rolling_features(df_with_targets, existing_zones)
-    # 物理モデルベースの特徴量を追加
+    # 物理ベース特徴量の作成
+    print("\n## 物理ベース特徴量を作成")
     df_with_targets, physics_cols = create_physics_based_features(df_with_targets, existing_zones)
-
-    # 新しい特徴量を特定
-    print(f"物理ベースのLAG特徴量を{len(lag_cols)}個追加しました")
-    print(f"物理的意味を持つ移動平均特徴量を{len(rolling_cols)}個追加しました")
-    print(f"熱力学ベースの特徴量を{len(physics_cols)}個追加しました")
+    print(f"物理ベース特徴量を{len(physics_cols)}個追加しました")
 
     # 目的変数の例を表示
     target_cols = [col for col in df_with_targets.columns if 'future' in col]
@@ -226,11 +222,6 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
             future_explanatory_base_config.append({'name': f'thermo_state_{zone}', 'type': 'zone_specific', 'zone': zone})
             print(f"サーモ状態特徴量 (未来予測対象): thermo_state_{zone}")
 
-        # サーモ状態調整値も追加（冷暖房モードで調整したもの）
-        if f'thermo_state_adjusted_{zone}' in df_with_targets.columns:
-            future_explanatory_base_config.append({'name': f'thermo_state_adjusted_{zone}', 'type': 'zone_specific', 'zone': zone})
-            print(f"調整済みサーモ状態特徴量 (未来予測対象): thermo_state_adjusted_{zone}")
-
         # 空調有効状態
         if f'AC_valid_{zone}' in df_with_targets.columns:
             future_explanatory_base_config.append({'name': f'AC_valid_{zone}', 'type': 'zone_specific', 'zone': zone})
@@ -262,28 +253,30 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
     feature_cols.extend(thermo_features)
 
     # 物理ベースの特徴量
-    feature_cols.extend(lag_cols)
-    feature_cols.extend(rolling_cols)
     feature_cols.extend(physics_cols)
 
     # 未来の説明変数（制御可能パラメータと環境データ）
     feature_cols.extend(all_future_explanatory_features)
 
-    # 時間特徴量
-    time_features = ['hour', 'hour_sin', 'hour_cos']
+    # 時間特徴量（hourのみ）
+    time_features = ['hour']
 
-    # 高次の相互作用を生成するためのベース特徴量
+    # 多項式特徴量のベース特徴量設定（修正版）
     poly_base_features = []
 
     # 利用可能な列名を取得
     available_columns = df_with_targets.columns.tolist()
 
     for zone in existing_zones:
-        # 現在の温度・湿度（平滑化済みを優先）
-        # カラム名が存在するか確認してから追加
+        # 現在の温度（平滑化済みを優先）
         temp_feature = f'sens_temp_{zone}_smoothed' if f'sens_temp_{zone}_smoothed' in df_with_targets.columns else f'sens_temp_{zone}'
         if temp_feature in available_columns:
             poly_base_features.append(temp_feature)
+
+        # 湿度センサー（存在する場合）
+        humid_feature = f'sens_humid_{zone}'
+        if humid_feature in available_columns:
+            poly_base_features.append(humid_feature)
 
         # サーモ状態
         if f'thermo_state_{zone}' in available_columns:
@@ -293,7 +286,11 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
         if f'AC_valid_{zone}' in available_columns:
             poly_base_features.append(f'AC_valid_{zone}')
 
-    # 環境特徴量 - カラム名の問題を考慮
+        # AC設定温度（単体での使用は任意だが、多項式には含める）
+        if f'AC_set_{zone}' in available_columns:
+            poly_base_features.append(f'AC_set_{zone}')
+
+    # 環境特徴量
     if actual_atmo_temp_col_name and actual_atmo_temp_col_name in available_columns:
         poly_base_features.append(actual_atmo_temp_col_name)
     if actual_solar_rad_col_name and actual_solar_rad_col_name in available_columns:

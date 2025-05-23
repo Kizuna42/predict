@@ -1392,13 +1392,13 @@ def plot_enhanced_detailed_time_series_by_horizon(results_dict, horizon, save_di
         if show_lag_analysis and lag_dependency:
             total_lag = lag_dependency.get('total_lag_dependency', 0)
             if total_lag > 30:
-                title += f' ⚠️ LAG依存度高: {total_lag:.1f}%'
+                title += f'LAG依存度高: {total_lag:.1f}%'
                 title_color = 'red'
             elif total_lag > 15:
-                title += f' ⚠ LAG依存度中: {total_lag:.1f}%'
+                title += f'LAG依存度中: {total_lag:.1f}%'
                 title_color = 'orange'
             else:
-                title += f' ✓ LAG依存度低: {total_lag:.1f}%'
+                title += f'LAG依存度低: {total_lag:.1f}%'
                 title_color = 'green'
         else:
             title_color = 'black'
@@ -1548,13 +1548,13 @@ def create_detailed_analysis_for_zone(results_dict, zone, horizon, save_dir=None
     print(f"  移動平均特徴量依存度: {rolling_lag:.1f}%")
 
     if total_lag > 30:
-        print("  ⚠️ 警告: LAG依存度が高すぎます（30%超）")
+        print("警告: LAG依存度が高すぎます（30%超）")
         print("    → 予測が過去データに過度に依存している可能性があります")
     elif total_lag > 15:
-        print("  ⚠ 注意: LAG依存度が中程度です（15-30%）")
+        print("注意: LAG依存度が中程度です（15-30%）")
         print("    → 適度な過去情報の利用ですが、監視が必要です")
     else:
-        print("  ✓ 良好: LAG依存度は低いレベルです（15%未満）")
+        print("良好: LAG依存度は低いレベルです（15%未満）")
 
     return {
         'generated_files': generated_files,
@@ -1660,7 +1660,7 @@ def generate_comprehensive_time_series_report(results_dict, save_dir=None,
     print(f"✅ 生成されたファイル数: {len(report_summary['generated_files'])}")
 
     if report_summary['high_lag_dependency']:
-        print(f"⚠️ 高LAG依存度モデル ({len(report_summary['high_lag_dependency'])}個):")
+        print(f"高LAG依存度モデル ({len(report_summary['high_lag_dependency'])}個):")
         for item in report_summary['high_lag_dependency']:
             print(f"  - ゾーン {item['zone']}, {item['horizon']}分: {item['lag_dependency']:.1f}%")
     else:
