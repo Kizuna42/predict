@@ -280,14 +280,14 @@ def plot_scatter_actual_vs_predicted_by_horizon(results_dict, horizon, save_dir=
 
 def plot_time_series(timestamps, actual, predicted, zone, horizon, save_dir=None, points=100, save=True):
     """
-    温度データと予測の時系列プロット
+    温度データと予測の時系列プロット（正しい時間軸で表示）
 
     Parameters:
     -----------
     timestamps : array-like
-        時系列のタイムスタンプ
+        時系列のタイムスタンプ（入力データの時刻）
     actual : Series
-        実測値
+        実測値（目的変数の時刻）
     predicted : array-like
         予測値
     zone : int
@@ -312,6 +312,14 @@ def plot_time_series(timestamps, actual, predicted, zone, horizon, save_dir=None
     actual_valid = actual[valid_indices]
     predicted_valid = predicted[valid_indices]
 
+    # 予測値の正しいタイムスタンプを計算（入力時刻 + 予測ホライゾン）
+    if isinstance(timestamps_valid, pd.DatetimeIndex):
+        prediction_timestamps = timestamps_valid + pd.Timedelta(minutes=horizon)
+    else:
+        # array-likeの場合はpd.DatetimeIndexに変換
+        timestamps_index = pd.DatetimeIndex(timestamps_valid)
+        prediction_timestamps = timestamps_index + pd.Timedelta(minutes=horizon)
+
     # データ点数が多い場合はサンプリング
     sample_size = min(len(timestamps_valid), points)
     if len(timestamps_valid) > sample_size:
@@ -320,24 +328,26 @@ def plot_time_series(timestamps, actual, predicted, zone, horizon, save_dir=None
         indices = list(range(0, len(timestamps_valid), step))[:sample_size]
 
         # データをサンプリング
-        if isinstance(timestamps_valid, pd.DatetimeIndex):
-            timestamps_sample = timestamps_valid[indices]
-        else:
-            timestamps_sample = timestamps_valid.iloc[indices] if hasattr(timestamps_valid, 'iloc') else timestamps_valid[indices]
-
+        timestamps_sample = timestamps_valid[indices]
+        prediction_timestamps_sample = prediction_timestamps[indices]
         actual_sample = actual_valid.iloc[indices] if hasattr(actual_valid, 'iloc') else actual_valid[indices]
         predicted_sample = predicted_valid[indices] if hasattr(predicted_valid, 'iloc') else predicted_valid[indices]
     else:
         timestamps_sample = timestamps_valid
+        prediction_timestamps_sample = prediction_timestamps
         actual_sample = actual_valid
         predicted_sample = predicted_valid
 
     # 時系列プロット作成
     fig, ax = plt.subplots(figsize=(12, 6))
 
-    # 実測値と予測値をプロット
-    ax.plot(timestamps_sample, actual_sample, 'b-', label='Actual')
-    ax.plot(timestamps_sample, predicted_sample, 'r--', label='Predicted')
+    # 実測値と予測値をプロット（正しい時間軸で）
+    ax.plot(timestamps_sample, actual_sample, 'b-', label='Actual (Target Time)', linewidth=2)
+    ax.plot(prediction_timestamps_sample, predicted_sample, 'r--', label=f'Predicted (+{horizon}min)', linewidth=2)
+
+    # 時間軸の説明を追加
+    ax.axvline(x=timestamps_sample[len(timestamps_sample)//2], color='gray', linestyle=':', alpha=0.7,
+               label='Input Time')
 
     # X軸フォーマット
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\n%H:%M'))
@@ -346,7 +356,7 @@ def plot_time_series(timestamps, actual, predicted, zone, horizon, save_dir=None
     # 軸ラベルとタイトル
     ax.set_xlabel('Date/Time', fontsize=12)
     ax.set_ylabel('Temperature (°C)', fontsize=12)
-    ax.set_title(f'Zone {zone} - Temperature Prediction for {horizon}-min Horizon (Time Series)', fontsize=14)
+    ax.set_title(f'Zone {zone} - Temperature Prediction for {horizon}-min Horizon (Corrected Time Axis)', fontsize=14)
 
     # グリッドと凡例
     ax.grid(True, linestyle='--', alpha=0.6)
@@ -536,10 +546,23 @@ def plot_time_series_by_horizon(results_dict, horizon, save_dir=None, points=100
             actual_sample = actual_valid
             predicted_sample = predicted_valid
 
-        # 実測値と予測値をプロット
+        # 予測値の正しいタイムスタンプを計算（入力時刻 + 予測ホライゾン）
         try:
-            axs[i].plot(timestamps_sample, actual_sample, 'b-', label='Actual')
-            axs[i].plot(timestamps_sample, predicted_sample, 'r--', label='Predicted')
+            if isinstance(timestamps_sample, pd.DatetimeIndex):
+                prediction_timestamps_sample = timestamps_sample + pd.Timedelta(minutes=horizon)
+            else:
+                # array-likeの場合はpd.DatetimeIndexに変換
+                timestamps_index = pd.DatetimeIndex(timestamps_sample)
+                prediction_timestamps_sample = timestamps_index + pd.Timedelta(minutes=horizon)
+        except Exception as e:
+            print(f"Zone {zone} の予測タイムスタンプ計算エラー: {e}")
+            # エラーの場合は元のタイムスタンプを使用
+            prediction_timestamps_sample = timestamps_sample
+
+        # 実測値と予測値をプロット（正しい時間軸で）
+        try:
+            axs[i].plot(timestamps_sample, actual_sample, 'b-', label='Actual (Target Time)', linewidth=2)
+            axs[i].plot(prediction_timestamps_sample, predicted_sample, 'r--', label=f'Predicted (+{horizon}min)', linewidth=2)
 
             # X軸フォーマット
             if isinstance(timestamps_sample, pd.DatetimeIndex) or isinstance(timestamps_sample[0], (pd.Timestamp, np.datetime64)):

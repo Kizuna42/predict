@@ -113,8 +113,8 @@ def create_detailed_analysis_for_zone(results_dict: Dict, zone: int, horizon: in
             analysis_results['time_validation'] = time_validation
 
         # 後追いパターン検出
-        if isinstance(test_df, pd.DataFrame) and hasattr(test_df, 'index'):
-            timestamps = test_df.index
+            if isinstance(test_df, pd.DataFrame) and hasattr(test_df, 'index'):
+                timestamps = test_df.index
             lag_following = detect_lag_following_pattern(timestamps, test_y.values, test_predictions, horizon)
             analysis_results['lag_following'] = lag_following
 
@@ -135,7 +135,7 @@ def create_detailed_analysis_for_zone(results_dict: Dict, zone: int, horizon: in
 
         analysis_results['analysis_completed'] = True
 
-    except Exception as e:
+        except Exception as e:
         analysis_results['error_message'] = f"分析中にエラーが発生しました: {str(e)}"
 
     return analysis_results
@@ -225,7 +225,7 @@ def create_comprehensive_analysis_report(results_dict: Dict, horizons: List[int]
         print(f"📊 分析対象: {len(horizons)}ホライゾン × {len(results_dict)}ゾーン")
         print(f"💾 結果保存先: {save_dir if save_dir else '保存なし'}")
 
-    except Exception as e:
+        except Exception as e:
         report['error'] = f"分析中にエラーが発生しました: {str(e)}"
         print(f"❌ エラー: {str(e)}")
 

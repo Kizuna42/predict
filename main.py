@@ -51,7 +51,6 @@ from src.models.evaluation import (
     calculate_metrics,
     print_metrics,
     analyze_feature_importance,
-    analyze_lag_dependency,
     print_lag_dependency_warning
 )
 
@@ -302,10 +301,13 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
             print("\n特徴量重要度 (上位10):")
             print(importance_df.head(10))
 
-            # ラグ依存性分析
+            # ラグ依存性分析（新しい診断機能を使用）
             # 上司のアドバイスに従い、ゾーンの系統（L/M/R）を特定
             zone_system = 'L' if zone in L_ZONES else ('M' if zone in M_ZONES else 'R')
-            lag_dependency = analyze_lag_dependency(importance_df, zone, horizon, zone_system)
+
+            # 新しい診断機能を使用
+            from src.diagnostics.lag_analysis import analyze_lag_dependency as new_analyze_lag_dependency
+            lag_dependency = new_analyze_lag_dependency(importance_df, zone, horizon, zone_system)
             print("\nLAG特徴量への依存度:")
             print(lag_dependency)
 
