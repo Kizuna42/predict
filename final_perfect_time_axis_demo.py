@@ -25,19 +25,19 @@ def demonstrate_perfect_time_axis_solution():
     完璧な時間軸修正の解決策をデモンストレーション
     """
     print("=" * 100)
-    print("🎯 完璧な時間軸修正システム - 最終デモンストレーション")
+    print("【完璧な時間軸修正システム - 最終デモンストレーション】")
     print("=" * 100)
 
-    print("\n📚 問題の説明:")
+    print("\n【問題の説明】")
     print("従来の方法では、予測値と実測値を同じ時刻（入力時刻）でプロットしていました。")
     print("これにより、予測が実測値の「後追い」をしているように見えていました。")
 
-    print("\n✅ 解決策:")
+    print("\n【解決策】")
     print("1. 予測値は「入力時刻 + 予測ホライゾン」でプロット")
     print("2. 比較には予測対象時刻の実測値を使用")
     print("3. 同じ時刻の値同士で正確な比較を実現")
 
-    print("\n🚀 デモンストレーション開始...")
+    print("\n【デモンストレーション開始】")
 
     # 複数のゾーンとホライゾンでデモ
     demo_configs = [
@@ -63,17 +63,17 @@ def demonstrate_perfect_time_axis_solution():
         )
 
         if result and result['success']:
-            print(f"✅ 成功!")
+            print(f"[成功] 完了!")
             print(f"   MAE: {result['mae']:.3f}°C")
             print(f"   RMSE: {result['rmse']:.3f}°C")
             print(f"   相関: {result['correlation']:.3f}")
             print(f"   保存先: {result['save_path']}")
             results.append(result)
         else:
-            print(f"❌ 失敗: {result.get('error', 'Unknown error') if result else 'No result'}")
+            print(f"[失敗] エラー: {result.get('error', 'Unknown error') if result else 'No result'}")
 
     # 結果サマリー
-    print(f"\n📊 デモンストレーション結果サマリー:")
+    print(f"\n【デモンストレーション結果サマリー】")
     print(f"   総実行数: {len(demo_configs)}")
     print(f"   成功数: {len(results)}")
     print(f"   成功率: {len(results)/len(demo_configs)*100:.1f}%")
@@ -95,10 +95,10 @@ def explain_time_axis_concepts():
     時間軸修正の概念を詳しく説明
     """
     print("\n" + "=" * 100)
-    print("📖 時間軸修正の詳細説明")
+    print("【時間軸修正の詳細説明】")
     print("=" * 100)
 
-    print("\n🔍 問題の詳細分析:")
+    print("\n【問題の詳細分析】")
     print("1. 従来の間違った方法:")
     print("   - 入力時刻: 13:00")
     print("   - 実測値: 13:00の温度（20.5°C）")
@@ -116,13 +116,13 @@ def explain_time_axis_concepts():
     print("   - 予測値: 13:15の予測温度（21.2°C） → 13:15に表示")
     print("   - 利点: 同じ時刻の値同士で正確な比較")
 
-    print("\n🎯 実装のポイント:")
+    print("\n【実装のポイント】")
     print("1. 予測対象時刻の実測値を自動取得")
     print("2. 有効なデータポイントのみを使用")
     print("3. 正確な性能指標（MAE、RMSE、相関）を計算")
     print("4. 3つの方法を並べて比較表示")
 
-    print("\n📈 期待される効果:")
+    print("\n【期待される効果】")
     print("1. 予測モデルの真の性能が正確に評価できる")
     print("2. 「後追い現象」の誤解が解消される")
     print("3. モデル改善の方向性が明確になる")
@@ -134,7 +134,7 @@ def create_comprehensive_report():
     包括的なレポートを作成
     """
     print("\n" + "=" * 100)
-    print("📋 完璧な時間軸修正システム - 包括的レポート")
+    print("【完璧な時間軸修正システム - 包括的レポート】")
     print("=" * 100)
 
     # 概念説明
@@ -144,7 +144,7 @@ def create_comprehensive_report():
     results = demonstrate_perfect_time_axis_solution()
 
     # 技術的詳細
-    print("\n🔧 技術的実装詳細:")
+    print("\n【技術的実装詳細】")
     print("1. データ処理:")
     print("   - 元データから予測対象時刻の実測値を抽出")
     print("   - 欠損値の適切な処理")
@@ -161,12 +161,12 @@ def create_comprehensive_report():
     print("   - 視覚的比較による定性評価")
 
     # 結論
-    print("\n🎉 結論:")
+    print("\n【結論】")
     print("完璧な時間軸修正システムにより、以下が実現されました：")
-    print("1. ✅ 予測値と同じ時刻の実測値での正確な比較")
-    print("2. ✅ 「後追い現象」の完全な解消")
-    print("3. ✅ 真の予測性能の正確な評価")
-    print("4. ✅ 直感的で分かりやすい可視化")
+    print("1. [完了] 予測値と同じ時刻の実測値での正確な比較")
+    print("2. [完了] 「後追い現象」の完全な解消")
+    print("3. [完了] 真の予測性能の正確な評価")
+    print("4. [完了] 直感的で分かりやすい可視化")
 
     return results
 
@@ -189,5 +189,5 @@ if __name__ == "__main__":
         create_comprehensive_report()
 
     print(f"\n{'='*100}")
-    print("🎊 完璧な時間軸修正システム - 実装完了！")
+    print("【完璧な時間軸修正システム - 実装完了！】")
     print("="*100)

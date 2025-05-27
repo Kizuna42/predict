@@ -86,13 +86,17 @@ def plot_perfect_time_axis_comparison(input_timestamps: pd.DatetimeIndex,
         作成されたフィギュア
     """
 
-    # フォント設定（簡素化・安定化）
+    # フォント設定（安定化）
     try:
         setup_japanese_font()
     except Exception:
         # フォント設定に失敗した場合はデフォルトを使用
         plt.rcParams['font.family'] = 'DejaVu Sans'
         plt.rcParams['axes.unicode_minus'] = False
+
+    # 絵文字や特殊文字の文字化け対策
+    plt.rcParams['font.size'] = 10
+    plt.rcParams['axes.titlesize'] = 14
 
     # 予測対象時刻の計算
     future_timestamps = input_timestamps + pd.Timedelta(minutes=horizon)
@@ -113,7 +117,7 @@ def plot_perfect_time_axis_comparison(input_timestamps: pd.DatetimeIndex,
                 predicted_values[valid_pred_mask],
                 'r--', linewidth=2, label='予測値（間違った時間軸）', alpha=0.8)
 
-    axes[0].set_title('❌ 従来の間違った方法: 予測値が入力時刻に表示',
+    axes[0].set_title('[間違った方法] 従来の方法: 予測値が入力時刻に表示',
                      fontsize=14, color='red', fontweight='bold')
     axes[0].set_ylabel('温度 (°C)')
     axes[0].legend()
@@ -127,7 +131,7 @@ def plot_perfect_time_axis_comparison(input_timestamps: pd.DatetimeIndex,
                 predicted_values[valid_pred_mask],
                 'r--', linewidth=2, label=f'予測値（+{horizon}分後）', alpha=0.8)
 
-    axes[1].set_title('⚠️ 部分修正: 予測値の時間軸は修正されたが、比較対象が不適切',
+    axes[1].set_title('[部分修正] 予測値の時間軸は修正されたが、比較対象が不適切',
                      fontsize=14, color='orange', fontweight='bold')
     axes[1].set_ylabel('温度 (°C)')
     axes[1].legend()
@@ -159,12 +163,12 @@ def plot_perfect_time_axis_comparison(input_timestamps: pd.DatetimeIndex,
                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
                         fontsize=10)
 
-        axes[2].set_title('✅ 完璧な方法: 予測値と同じ時刻の実測値で比較',
+        axes[2].set_title('[完璧な方法] 予測値と同じ時刻の実測値で比較',
                          fontsize=14, color='green', fontweight='bold')
     else:
         axes[2].text(0.5, 0.5, f'{horizon}分後の実測値データが不足',
                     transform=axes[2].transAxes, ha='center', va='center', fontsize=12)
-        axes[2].set_title('❌ データ不足: 予測対象時刻の実測値なし',
+        axes[2].set_title('[データ不足] 予測対象時刻の実測値なし',
                          fontsize=14, color='red', fontweight='bold')
 
     axes[2].set_ylabel('温度 (°C)')
@@ -357,7 +361,7 @@ def create_perfect_visualization_for_all_zones(results_dict: Dict,
     """
 
     print(f"\n{'='*80}")
-    print(f"🎯 {horizon}分予測の完璧な時間軸修正可視化")
+    print(f"【{horizon}分予測の完璧な時間軸修正可視化】")
     print(f"{'='*80}")
 
     overall_result = {
@@ -396,12 +400,12 @@ def create_perfect_visualization_for_all_zones(results_dict: Dict,
             # メトリクスの表示
             if zone_result['metrics']:
                 metrics = zone_result['metrics']
-                print(f"✅ 成功 - MAE: {metrics['mae']:.3f}°C, "
+                print(f"[成功] MAE: {metrics['mae']:.3f}°C, "
                       f"RMSE: {metrics['rmse']:.3f}°C, "
                       f"相関: {metrics['correlation']:.3f}")
         else:
             overall_result['failed_zones'] += 1
-            print(f"❌ 失敗 - {zone_result['error_message']}")
+            print(f"[失敗] {zone_result['error_message']}")
 
     # サマリーメトリクスの計算
     successful_metrics = [r['metrics'] for r in overall_result['zone_results'].values()
@@ -416,7 +420,7 @@ def create_perfect_visualization_for_all_zones(results_dict: Dict,
         }
 
     # 結果サマリーの表示
-    print(f"\n📊 {horizon}分予測の完璧な可視化結果サマリー:")
+    print(f"\n【{horizon}分予測の完璧な可視化結果サマリー】")
     print(f"  総ゾーン数: {overall_result['total_zones']}")
     print(f"  成功ゾーン: {overall_result['successful_zones']}")
     print(f"  失敗ゾーン: {overall_result['failed_zones']}")
@@ -459,7 +463,7 @@ def create_comprehensive_perfect_visualization(results_dict: Dict,
     """
 
     print(f"\n{'='*100}")
-    print(f"🚀 包括的完璧時間軸修正可視化システム")
+    print(f"【包括的完璧時間軸修正可視化システム】")
     print(f"{'='*100}")
 
     comprehensive_result = {
@@ -504,7 +508,7 @@ def create_comprehensive_perfect_visualization(results_dict: Dict,
         }
 
     # 最終結果の表示
-    print(f"\n🎉 包括的完璧可視化完了:")
+    print(f"\n【包括的完璧可視化完了】")
     print(f"  処理ホライゾン: {comprehensive_result['horizons_processed']}")
     print(f"  総可視化数: {comprehensive_result['total_visualizations']}")
     print(f"  成功可視化数: {comprehensive_result['successful_visualizations']}")

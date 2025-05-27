@@ -40,6 +40,7 @@
 ├── Output/                       # 出力ディレクトリ
 │   ├── models/                   # 保存されたモデル
 │   ├── perfect_time_axis/        # 完璧な時間軸修正プロット
+│   ├── visualizations/           # 各種可視化ファイル
 │   └── lag_diagnosis/            # LAG診断結果
 ├── main.py                       # メインスクリプト
 ├── final_perfect_time_axis_demo.py # 完璧な時間軸修正デモ
