@@ -97,8 +97,9 @@ def print_lag_dependency_warning(lag_dependency, threshold=30.0, zone=None, hori
     # 総LAG依存度の計算（lag_temp_percentとrolling_temp_percentの合計）
     total_lag_dependency = lag_dependency['lag_temp_percent'] + lag_dependency['rolling_temp_percent']
 
-    # 過去の時系列データへの総依存度
-    total_past_dependency = lag_dependency['total_past_time_series_percent']
+    # 現在のセンサー値への依存度（過去データの代替指標として使用）
+    current_temp_dependency = lag_dependency.get('current_temp_percent', 0)
+    future_temp_dependency = lag_dependency.get('future_temp_percent', 0)
 
     header = "LAG特徴量依存度分析"
     if zone is not None:
@@ -114,7 +115,8 @@ def print_lag_dependency_warning(lag_dependency, threshold=30.0, zone=None, hori
     print(f"直接的LAG特徴量依存度: {lag_dependency['lag_temp_percent']:.2f}%")
     print(f"移動平均特徴量依存度: {lag_dependency['rolling_temp_percent']:.2f}%")
     print(f"総LAG依存度: {total_lag_dependency:.2f}%")
-    print(f"過去時系列データへの総依存度: {total_past_dependency:.2f}%")
+    print(f"現在センサー値依存度: {current_temp_dependency:.2f}%")
+    print(f"未来制御情報依存度: {future_temp_dependency:.2f}%")
 
     # 依存度が閾値を超える場合に警告を表示
     if total_lag_dependency > threshold:
@@ -124,9 +126,9 @@ def print_lag_dependency_warning(lag_dependency, threshold=30.0, zone=None, hori
         print("  - より物理的な意味を持つ特徴量を追加")
         print("  - LAG特徴量の重みを下げる")
         print("  - より長期のLAGのみを使用")
-    elif total_past_dependency > threshold * 1.5:
-        print(f"\n⚠️ 注意: 過去時系列データへの依存度が高めです ({total_past_dependency:.2f}%)")
-        print("  モデルが過去のデータに依存している可能性があります。")
+    elif current_temp_dependency > threshold * 1.5:
+        print(f"\n⚠️ 注意: 現在センサー値への依存度が高めです ({current_temp_dependency:.2f}%)")
+        print("  モデルが現在のデータに依存している可能性があります。")
     else:
         print(f"\n✅ LAG依存度は許容範囲内です ({total_lag_dependency:.2f}% <= {threshold:.2f}%)")
         print("  モデルは適切に物理特徴量や未来の説明変数を活用しています。")
