@@ -12,11 +12,11 @@ import os
 import warnings
 warnings.filterwarnings('ignore')
 
-# 簡単な完璧可視化システムのインポート
-from src.utils.simple_perfect_visualization import (
-    create_simple_perfect_demo,
-    plot_simple_perfect_comparison,
-    get_future_actual_values_simple
+# 完璧な時間軸修正可視化システムのインポート
+from src.utils.perfect_time_axis_visualization import (
+    create_simple_demo,
+    plot_perfect_time_axis_comparison,
+    get_future_actual_values
 )
 
 
@@ -56,7 +56,7 @@ def demonstrate_perfect_time_axis_solution():
         print(f"\n--- ゾーン {zone}, {horizon}分予測のデモ ---")
 
         save_dir = f"Output/final_perfect_demo/zone_{zone}_horizon_{horizon}"
-        result = create_simple_perfect_demo(
+        result = create_simple_demo(
             zone=zone,
             horizon=horizon,
             save_dir=save_dir

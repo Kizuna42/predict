@@ -20,7 +20,8 @@ from .advanced_visualization import (
 # 完璧な時間軸修正可視化をインポート
 from .perfect_time_axis_visualization import (
     create_perfect_visualization_for_all_zones,
-    create_comprehensive_perfect_visualization
+    create_comprehensive_perfect_visualization,
+    create_simple_demo
 )
 
 # 診断機能をインポート

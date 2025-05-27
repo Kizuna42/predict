@@ -86,10 +86,10 @@ def plot_perfect_time_axis_comparison(input_timestamps: pd.DatetimeIndex,
         作成されたフィギュア
     """
 
-    # フォント設定（簡素化）
+    # フォント設定（簡素化・安定化）
     try:
         setup_japanese_font()
-    except:
+    except Exception:
         # フォント設定に失敗した場合はデフォルトを使用
         plt.rcParams['font.family'] = 'DejaVu Sans'
         plt.rcParams['axes.unicode_minus'] = False
@@ -517,3 +517,99 @@ def create_comprehensive_perfect_visualization(results_dict: Dict,
         print(f"  全体平均相関: {summary['overall_average_correlation']:.3f}")
 
     return comprehensive_result
+
+
+def create_simple_demo(zone: int = 1, horizon: int = 15, save_dir: str = None) -> Dict[str, Any]:
+    """
+    簡単な完璧時間軸修正デモ（スタンドアロン版）
+
+    Parameters:
+    -----------
+    zone : int
+        ゾーン番号
+    horizon : int
+        予測ホライゾン（分）
+    save_dir : str, optional
+        保存ディレクトリ
+
+    Returns:
+    --------
+    dict
+        デモ結果
+    """
+    print(f"Perfect Time Axis Demo: Zone {zone}, {horizon}min prediction")
+
+    try:
+        # データ読み込み
+        df = pd.read_csv('AllDayData.csv')
+
+        # 時間インデックス設定
+        if 'time_stamp' in df.columns:
+            df['time_stamp'] = pd.to_datetime(df['time_stamp'])
+            df = df.set_index('time_stamp')
+
+        temp_col = f'sens_temp_{zone}'
+        if temp_col not in df.columns:
+            return {'success': False, 'error': f"Temperature column {temp_col} not found"}
+
+        # 最新データを使用
+        recent_data = df.iloc[-1000:].copy()
+        input_timestamps = recent_data.index[-500:]  # 最新500ポイント
+        input_actual_values = recent_data.loc[input_timestamps, temp_col].values
+
+        # 予測対象時刻の実測値を取得
+        future_timestamps, future_actual_values = get_future_actual_values(
+            df[temp_col], input_timestamps, horizon
+        )
+
+        # 有効な未来値のチェック
+        valid_future_mask = ~np.isnan(future_actual_values)
+        if np.sum(valid_future_mask) < 10:
+            return {'success': False, 'error': f"Insufficient future data: {np.sum(valid_future_mask)} points"}
+
+        # 予測値の作成（実測値にノイズを加えてシミュレート）
+        np.random.seed(42)
+        noise_std = np.nanstd(future_actual_values) * 0.05  # 5%のノイズ
+        predicted_values = future_actual_values + np.random.normal(0, noise_std, len(future_actual_values))
+
+        # プロット作成
+        save_path = None
+        if save_dir:
+            save_path = os.path.join(save_dir, f'perfect_demo_zone_{zone}_horizon_{horizon}.png')
+
+        fig = plot_perfect_time_axis_comparison(
+            input_timestamps=input_timestamps,
+            input_actual_values=input_actual_values,
+            predicted_values=predicted_values,
+            future_actual_values=future_actual_values,
+            horizon=horizon,
+            zone=zone,
+            save_path=save_path
+        )
+
+        # 性能指標の計算
+        valid_mask = ~np.isnan(future_actual_values) & ~np.isnan(predicted_values)
+        if np.sum(valid_mask) > 0:
+            mae = np.mean(np.abs(future_actual_values[valid_mask] - predicted_values[valid_mask]))
+            rmse = np.sqrt(np.mean((future_actual_values[valid_mask] - predicted_values[valid_mask]) ** 2))
+            corr = np.corrcoef(future_actual_values[valid_mask], predicted_values[valid_mask])[0, 1]
+
+            print(f"Performance Metrics:")
+            print(f"  MAE: {mae:.3f}°C")
+            print(f"  RMSE: {rmse:.3f}°C")
+            print(f"  Correlation: {corr:.3f}")
+            print(f"  Valid points: {np.sum(valid_mask)}")
+
+        plt.close(fig)
+
+        return {
+            'success': True,
+            'mae': mae if 'mae' in locals() else None,
+            'rmse': rmse if 'rmse' in locals() else None,
+            'correlation': corr if 'corr' in locals() else None,
+            'save_path': save_path,
+            'valid_points': np.sum(valid_mask) if 'valid_mask' in locals() else 0
+        }
+
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
