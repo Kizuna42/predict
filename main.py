@@ -60,17 +60,14 @@ from src.utils.visualization import (
     print_analysis_summary
 )
 
-# 基本可視化機能のインポート
+# 簡素化された可視化機能のインポート
 from src.utils.basic_plots import (
-    plot_feature_importance,
-    plot_scatter_actual_vs_predicted_by_horizon,
-    plot_time_series_by_horizon
+    plot_feature_importance
 )
 
-# 高度な可視化機能のインポート
 from src.utils.advanced_visualization import (
     plot_corrected_time_series_by_horizon,
-    plot_enhanced_detailed_time_series_by_horizon
+    plot_ultra_detailed_minute_analysis
 )
 
 # 診断機能のインポート

@@ -8,19 +8,13 @@
 
 # 基本的な可視化機能をインポート
 from .basic_plots import (
-    plot_feature_importance,
-    plot_scatter_actual_vs_predicted,
-    plot_scatter_actual_vs_predicted_by_horizon,
-    plot_time_series,
-    plot_time_series_by_horizon
+    plot_feature_importance
 )
 
 # 高度な可視化機能をインポート
 from .advanced_visualization import (
-    plot_corrected_time_series,
     plot_corrected_time_series_by_horizon,
-    plot_enhanced_detailed_time_series_by_horizon,
-    plot_lag_dependency_visualization
+    plot_ultra_detailed_minute_analysis
 )
 
 # 診断機能をインポート
@@ -43,7 +37,7 @@ from typing import Dict, Any, List, Optional
 def create_detailed_analysis_for_zone(results_dict: Dict, zone: int, horizon: int,
                                     save_dir: Optional[str] = None, save: bool = True) -> Dict[str, Any]:
     """
-    特定ゾーンの詳細分析を実行
+    特定ゾーンの詳細分析を実行（簡素化版）
 
     Parameters:
     -----------
@@ -112,30 +106,18 @@ def create_detailed_analysis_for_zone(results_dict: Dict, zone: int, horizon: in
             time_validation = validate_prediction_timing(timestamps, test_y.values, test_predictions, horizon, zone)
             analysis_results['time_validation'] = time_validation
 
-        # 後追いパターン検出
-            if isinstance(test_df, pd.DataFrame) and hasattr(test_df, 'index'):
-                timestamps = test_df.index
+            # 後追いパターン検出
             lag_following = detect_lag_following_pattern(timestamps, test_y.values, test_predictions, horizon)
             analysis_results['lag_following'] = lag_following
 
-        # 可視化の生成
+        # 可視化の生成（簡素化：特徴量重要度のみ）
         if save_dir:
-            # 基本プロット
-            plot_scatter_actual_vs_predicted(test_y, test_predictions, zone, horizon, save_dir, save)
-            plot_time_series(timestamps, test_y, test_predictions, zone, horizon, save_dir, save=save)
-
             # 特徴量重要度プロット
             plot_feature_importance(feature_importance, zone, horizon, save_dir, save=save)
 
-            # LAG依存度可視化
-            plot_lag_dependency_visualization(lag_dependency, zone, horizon, save_dir, save)
-
-            # 時間軸修正プロット
-            plot_corrected_time_series(timestamps, test_y, test_predictions, zone, horizon, save_dir, save=save)
-
         analysis_results['analysis_completed'] = True
 
-        except Exception as e:
+    except Exception as e:
         analysis_results['error_message'] = f"分析中にエラーが発生しました: {str(e)}"
 
     return analysis_results
@@ -144,7 +126,7 @@ def create_detailed_analysis_for_zone(results_dict: Dict, zone: int, horizon: in
 def create_comprehensive_analysis_report(results_dict: Dict, horizons: List[int],
                                        save_dir: Optional[str] = None, save: bool = True) -> Dict[str, Any]:
     """
-    包括的な分析レポートを作成
+    包括的な分析レポートを作成（簡素化版）
 
     Parameters:
     -----------
@@ -176,18 +158,17 @@ def create_comprehensive_analysis_report(results_dict: Dict, horizons: List[int]
         for horizon in horizons:
             print(f"\n🔍 {horizon}分予測の分析を開始...")
 
-            # 全ゾーンの可視化
-            plot_scatter_actual_vs_predicted_by_horizon(results_dict, horizon, save_dir, save)
-            plot_time_series_by_horizon(results_dict, horizon, save_dir, save=save)
+            # 1. 時間軸修正済み時系列プロット（全ゾーン）
+            print(f"📊 {horizon}分予測の時間軸修正済み時系列プロットを生成中...")
             plot_corrected_time_series_by_horizon(results_dict, horizon, save_dir, save=save)
 
-            # 詳細時系列分析（複数スケール）
-            for time_scale, days in [('hour', 1), ('day', 7), ('week', 30)]:
-                plot_enhanced_detailed_time_series_by_horizon(
-                    results_dict, horizon, save_dir, time_scale, days, save=save
-                )
+            # 2. 超高解像度分刻み可視化（複数の時間スケール）
+            print(f"🔍 {horizon}分予測の超高解像度分刻み分析を開始...")
+            ultra_detailed_figures = plot_ultra_detailed_minute_analysis(
+                results_dict, horizon, save_dir, save=save
+            )
 
-            # ホライゾン別の詳細分析
+            # ホライゾン別の詳細分析（特徴量重要度のみ）
             horizon_analysis = {}
             for zone in results_dict.keys():
                 zone_analysis = create_detailed_analysis_for_zone(results_dict, zone, horizon, save_dir, save)
@@ -225,7 +206,7 @@ def create_comprehensive_analysis_report(results_dict: Dict, horizons: List[int]
         print(f"📊 分析対象: {len(horizons)}ホライゾン × {len(results_dict)}ゾーン")
         print(f"💾 結果保存先: {save_dir if save_dir else '保存なし'}")
 
-        except Exception as e:
+    except Exception as e:
         report['error'] = f"分析中にエラーが発生しました: {str(e)}"
         print(f"❌ エラー: {str(e)}")
 
@@ -321,26 +302,14 @@ def print_analysis_summary(report: Dict[str, Any]) -> None:
     print("\n" + "="*80)
 
 
-# 後方互換性のためのエイリアス
-def plot_detailed_time_series_by_horizon(*args, **kwargs):
-    """後方互換性のためのエイリアス"""
-    return plot_enhanced_detailed_time_series_by_horizon(*args, **kwargs)
-
-
-# 公開API
+# 公開API（簡素化）
 __all__ = [
     # 基本プロット
     'plot_feature_importance',
-    'plot_scatter_actual_vs_predicted',
-    'plot_scatter_actual_vs_predicted_by_horizon',
-    'plot_time_series',
-    'plot_time_series_by_horizon',
 
     # 高度な可視化
-    'plot_corrected_time_series',
     'plot_corrected_time_series_by_horizon',
-    'plot_enhanced_detailed_time_series_by_horizon',
-    'plot_lag_dependency_visualization',
+    'plot_ultra_detailed_minute_analysis',
 
     # 統合分析
     'create_detailed_analysis_for_zone',
@@ -353,8 +322,5 @@ __all__ = [
     'validate_prediction_timing',
     'create_correct_prediction_timestamps',
     'analyze_feature_patterns',
-    'calculate_comprehensive_metrics',
-
-    # 後方互換性
-    'plot_detailed_time_series_by_horizon'
+    'calculate_comprehensive_metrics'
 ]
