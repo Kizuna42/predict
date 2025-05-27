@@ -64,7 +64,11 @@ from src.utils.visualization import (
     plot_scatter_actual_vs_predicted_by_horizon,
     plot_time_series_by_horizon,
     plot_enhanced_detailed_time_series,
-    plot_enhanced_detailed_time_series_by_horizon
+    plot_enhanced_detailed_time_series_by_horizon,
+    plot_corrected_time_series_by_horizon,
+    validate_prediction_timing,
+    analyze_feature_patterns,
+    detect_lag_following_pattern
 )
 
 
@@ -304,13 +308,13 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
                 'selected_features': final_selected_features,
                 'train_metrics': train_metrics,
                 'test_metrics': test_metrics,
-                'importance': importance_df,
+                'feature_importance': importance_df,
                 'lag_dependency': lag_dependency,
                 'model_path': model_path,
                 'features_path': features_path,
+                'test_data': test_df,
                 'test_y': test_y,
-                'test_predictions': test_predictions,
-                'test_df': test_df
+                'test_predictions': test_predictions
             }
 
         results[zone] = zone_results
@@ -328,9 +332,9 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
             print(f"ホライゾン {horizon}分 の時系列プロット生成に失敗しました")
 
     print("\n## 詳細時系列可視化（細かい時間軸設定・LAG依存度分析付き）を生成中...")
-    # 各時間スケールでの詳細可視化
-    time_scales = ['day', 'hour']  # 日単位と時間単位
-    data_periods = [7, 3]  # 7日間と3日間
+    # 各時間スケールでの詳細可視化（分単位を追加）
+    time_scales = ['minute', 'hour', 'day']  # 分単位、時間単位、日単位
+    data_periods = [0.5, 3, 7]  # 12時間、3日間、7日間
 
     for horizon in actual_horizons:
         for time_scale, data_period in zip(time_scales, data_periods):
@@ -351,6 +355,43 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
                 print(f"✓ 詳細時系列プロット生成完了 ({time_scale}軸, {data_period}日間)")
             else:
                 print(f"✗ 詳細時系列プロット生成失敗 ({time_scale}軸, {data_period}日間)")
+
+    # 超高解像度分単位可視化（短時間の詳細分析）
+    print(f"\n### 超高解像度分単位可視化（短時間詳細分析）")
+    for horizon in actual_horizons:
+        print(f"\n### ホライゾン {horizon}分 - 超高解像度（分単位）")
+
+        # 2時間の超詳細分析
+        minute_fig_2h = plot_enhanced_detailed_time_series_by_horizon(
+            results,
+            horizon,
+            save_dir=OUTPUT_DIR,
+            time_scale='minute',
+            data_period_days=0.083,  # 2時間 (2/24日)
+            show_lag_analysis=True,
+            save=True
+        )
+
+        if minute_fig_2h:
+            print(f"✓ 分単位詳細時系列プロット生成完了（2時間）")
+        else:
+            print(f"✗ 分単位詳細時系列プロット生成失敗（2時間）")
+
+        # 6時間の詳細分析
+        minute_fig_6h = plot_enhanced_detailed_time_series_by_horizon(
+            results,
+            horizon,
+            save_dir=OUTPUT_DIR,
+            time_scale='minute',
+            data_period_days=0.25,  # 6時間 (6/24日)
+            show_lag_analysis=True,
+            save=True
+        )
+
+        if minute_fig_6h:
+            print(f"✓ 分単位詳細時系列プロット生成完了（6時間）")
+        else:
+            print(f"✗ 分単位詳細時系列プロット生成失敗（6時間）")
 
     # 週単位スケールでの長期視点可視化（代表的なホライゾンのみ）
     representative_horizons = [15, 30] if len(actual_horizons) > 2 else actual_horizons
@@ -375,20 +416,89 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
     print("\n## すべてのモデルのトレーニングが完了しました")
     print(f"結果は {OUTPUT_DIR} ディレクトリに保存されています")
 
+    # 時間軸検証と修正された可視化を追加
+    print("\n## 🔍 時間軸検証と修正された可視化を生成中...")
+    for horizon in actual_horizons:
+        print(f"\n### ホライゾン {horizon}分 - 時間軸検証")
+
+        # 時間軸修正済み時系列プロット
+        corrected_fig = plot_corrected_time_series_by_horizon(
+            results, horizon, save_dir=OUTPUT_DIR, validate_timing=True
+        )
+
+        if corrected_fig:
+            print(f"✓ 時間軸修正済み時系列プロット生成完了")
+        else:
+            print(f"✗ 時間軸修正済み時系列プロット生成失敗")
+
+    # 包括的な診断分析
+    print("\n## 🔬 包括的な診断分析")
+    for zone in existing_zones:
+        if zone in results:
+            for horizon in actual_horizons:
+                if horizon in results[zone]:
+                    print(f"\n### ゾーン {zone}, ホライゾン {horizon}分 - 診断結果")
+
+                    # 特徴量パターン分析
+                    feature_importance = results[zone][horizon]['feature_importance']
+                    pattern_analysis = analyze_feature_patterns(feature_importance, zone, horizon)
+
+                    print(f"  📊 特徴量分析:")
+                    print(f"    LAG特徴量数: {len(pattern_analysis['lag_features'])}")
+                    print(f"    未来特徴量数: {len(pattern_analysis['future_features'])}")
+                    print(f"    現在特徴量数: {len(pattern_analysis['current_features'])}")
+
+                    # 疑わしいパターンの報告
+                    if pattern_analysis['suspicious_patterns']:
+                        print(f"  ⚠️ 検出された問題:")
+                        for pattern in pattern_analysis['suspicious_patterns']:
+                            severity_icon = "🔴" if pattern['severity'] == 'high' else "🟡"
+                            print(f"    {severity_icon} {pattern['description']}")
+                    else:
+                        print(f"  ✅ 特徴量パターンに問題なし")
+
+                    # LAG後追いパターン検出
+                    test_data = results[zone][horizon]['test_data']
+                    if test_data is not None and len(test_data) > 100:
+                        timestamps = test_data.index
+                        actual = results[zone][horizon]['test_y'].values
+                        predicted = results[zone][horizon]['test_predictions']
+
+                        lag_detection = detect_lag_following_pattern(timestamps, actual, predicted, horizon)
+
+                        print(f"  🔍 LAG後追い検出:")
+                        if lag_detection['is_lag_following']:
+                            print(f"    🔴 後追いパターン検出 (信頼度: {lag_detection['confidence']})")
+                            print(f"    📈 最大相関遅れ: {lag_detection['optimal_lag_steps']}ステップ")
+                            print(f"    📊 相関係数: {lag_detection['lag_correlation']:.3f}")
+                            print(f"    💡 推奨対策:")
+                            for rec in lag_detection['recommendations']:
+                                print(f"      - {rec}")
+                        else:
+                            print(f"    ✅ 後追いパターンなし (相関: {lag_detection['lag_correlation']:.3f})")
+
     # 生成された可視化ファイルの概要表示
     print(f"\n## 生成された可視化ファイル:")
     print(f"  - 散布図: scatter_all_zones_horizon_*.png")
     print(f"  - 基本時系列: timeseries_all_zones_horizon_*.png")
-    print(f"  - 詳細時系列（日軸）: detailed_timeseries_all_zones_horizon_*_day_*days.png")
-    print(f"  - 詳細時系列（時軸）: detailed_timeseries_all_zones_horizon_*_hour_*days.png")
-    print(f"  - 詳細時系列（週軸）: detailed_timeseries_all_zones_horizon_*_week_*days.png")
+    print(f"  - 詳細時系列（分軸・超高解像度）: enhanced_detailed_timeseries_all_zones_horizon_*_minute_*days.png")
+    print(f"  - 詳細時系列（時軸）: enhanced_detailed_timeseries_all_zones_horizon_*_hour_*days.png")
+    print(f"  - 詳細時系列（日軸）: enhanced_detailed_timeseries_all_zones_horizon_*_day_*days.png")
+    print(f"  - 詳細時系列（週軸）: enhanced_detailed_timeseries_all_zones_horizon_*_week_*days.png")
+    print(f"\n🔍 超高解像度分単位可視化:")
+    print(f"  - 2時間詳細: enhanced_detailed_timeseries_all_zones_horizon_*_minute_0.083days.png")
+    print(f"  - 6時間詳細: enhanced_detailed_timeseries_all_zones_horizon_*_minute_0.25days.png")
+    print(f"  - 12時間詳細: enhanced_detailed_timeseries_all_zones_horizon_*_minute_0.5days.png")
+    print(f"\n⚠️ 時間軸検証・修正済み可視化:")
+    print(f"  - 時間軸修正済み時系列: corrected_timeseries_all_zones_horizon_*.png")
+    print(f"  - 従来方式との比較表示（上段：問題のある表示、下段：修正済み表示）")
     print(f"\n📊 LAG依存度分析結果:")
     for zone in existing_zones:
         if zone in results:
             for horizon in actual_horizons:
                 if horizon in results[zone]:
                     lag_dep = results[zone][horizon]['lag_dependency']
-                    total_lag = lag_dep.get('total_lag_dependency', 0)
+                    total_lag = lag_dep.get('lag_temp_percent', 0) + lag_dep.get('rolling_temp_percent', 0)
                     status = "⚠️高" if total_lag > 30 else "⚠中" if total_lag > 15 else "✓低"
                     print(f"  ゾーン {zone}, {horizon}分: LAG依存度 {total_lag:.1f}% {status}")
 
