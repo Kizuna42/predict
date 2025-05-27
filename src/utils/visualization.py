@@ -17,6 +17,12 @@ from .advanced_visualization import (
     plot_ultra_detailed_minute_analysis
 )
 
+# 完璧な時間軸修正可視化をインポート
+from .perfect_time_axis_visualization import (
+    create_perfect_visualization_for_all_zones,
+    create_comprehensive_perfect_visualization
+)
+
 # 診断機能をインポート
 from ..diagnostics import (
     analyze_lag_dependency,
@@ -124,9 +130,10 @@ def create_detailed_analysis_for_zone(results_dict: Dict, zone: int, horizon: in
 
 
 def create_comprehensive_analysis_report(results_dict: Dict, horizons: List[int],
+                                       original_df: Optional[pd.DataFrame] = None,
                                        save_dir: Optional[str] = None, save: bool = True) -> Dict[str, Any]:
     """
-    包括的な分析レポートを作成（簡素化版）
+    包括的な分析レポートを作成（完璧な時間軸修正版）
 
     Parameters:
     -----------
@@ -134,6 +141,8 @@ def create_comprehensive_analysis_report(results_dict: Dict, horizons: List[int]
         結果辞書
     horizons : list
         分析対象のホライゾンリスト
+    original_df : pd.DataFrame, optional
+        元のデータフレーム（完璧な時間軸修正用）
     save_dir : str, optional
         保存ディレクトリ
     save : bool, optional
@@ -150,6 +159,7 @@ def create_comprehensive_analysis_report(results_dict: Dict, horizons: List[int]
         'zones_analyzed': list(results_dict.keys()),
         'summary': {},
         'detailed_results': {},
+        'perfect_time_axis_results': {},
         'recommendations': []
     }
 
@@ -158,11 +168,23 @@ def create_comprehensive_analysis_report(results_dict: Dict, horizons: List[int]
         for horizon in horizons:
             print(f"\n🔍 {horizon}分予測の分析を開始...")
 
-            # 1. 時間軸修正済み時系列プロット（全ゾーン）
+            # 1. 従来の時間軸修正済み時系列プロット（全ゾーン）
             print(f"📊 {horizon}分予測の時間軸修正済み時系列プロットを生成中...")
             plot_corrected_time_series_by_horizon(results_dict, horizon, save_dir, save=save)
 
-            # 2. 超高解像度分刻み可視化（複数の時間スケール）
+            # 2. 完璧な時間軸修正可視化（推奨）
+            if original_df is not None:
+                print(f"🎯 {horizon}分予測の完璧な時間軸修正可視化を生成中...")
+                perfect_save_dir = os.path.join(save_dir, 'perfect_time_axis') if save_dir else None
+                perfect_result = create_perfect_visualization_for_all_zones(
+                    results_dict=results_dict,
+                    original_df=original_df,
+                    horizon=horizon,
+                    save_dir=perfect_save_dir
+                )
+                report['perfect_time_axis_results'][horizon] = perfect_result
+
+            # 3. 超高解像度分刻み可視化（複数の時間スケール）
             print(f"🔍 {horizon}分予測の超高解像度分刻み分析を開始...")
             ultra_detailed_figures = plot_ultra_detailed_minute_analysis(
                 results_dict, horizon, save_dir, save=save

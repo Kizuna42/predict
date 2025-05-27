@@ -79,6 +79,12 @@ from src.diagnostics import (
     calculate_comprehensive_metrics
 )
 
+# 新しい包括的LAG診断機能のインポート
+from src.diagnostics.comprehensive_lag_analysis import (
+    analyze_lag_following_comprehensive,
+    generate_lag_analysis_report
+)
+
 
 def main(test_mode=False, target_zones=None, target_horizons=None):
     """
@@ -331,10 +337,11 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
         results[zone] = zone_results
     print("\n## 📊 包括的分析レポートの生成")
 
-    # 新しい統合分析インターフェースを使用
+    # 新しい統合分析インターフェースを使用（完璧な時間軸修正を含む）
     comprehensive_report = create_comprehensive_analysis_report(
         results_dict=results,
         horizons=actual_horizons,
+        original_df=df,  # 完璧な時間軸修正用の元データフレーム
         save_dir=OUTPUT_DIR,
         save=True
     )
@@ -342,8 +349,39 @@ def main(test_mode=False, target_zones=None, target_horizons=None):
     # 分析サマリーの表示
     print_analysis_summary(comprehensive_report)
 
+    print("\n## 🔍 LAG特徴量による後追い問題の包括的診断")
+
+    # LAG診断の実行
+    lag_diagnosis_dir = os.path.join(OUTPUT_DIR, "lag_diagnosis")
+    os.makedirs(lag_diagnosis_dir, exist_ok=True)
+
+    for horizon in actual_horizons:
+        print(f"\n--- ホライゾン {horizon}分のLAG診断 ---")
+
+        try:
+            # LAG分析レポートの生成
+            lag_report = generate_lag_analysis_report(
+                results_dict=results,
+                horizon=horizon,
+                save_dir=lag_diagnosis_dir
+            )
+
+            print(f"  分析対象ゾーン数: {lag_report['zones_analyzed']}")
+            print(f"  高リスクゾーン: {len(lag_report['high_risk_zones'])}個")
+            print(f"  中リスクゾーン: {len(lag_report['medium_risk_zones'])}個")
+            print(f"  低リスクゾーン: {len(lag_report['low_risk_zones'])}個")
+
+            if lag_report['overall_recommendations']:
+                print("  全体的な推奨事項:")
+                for rec in lag_report['overall_recommendations']:
+                    print(f"    - {rec}")
+
+        except Exception as e:
+            print(f"  LAG診断エラー: {e}")
+
     print("\n## すべてのモデルのトレーニングと分析が完了しました")
     print(f"結果は {OUTPUT_DIR} ディレクトリに保存されています")
+    print(f"LAG診断結果は {lag_diagnosis_dir} ディレクトリに保存されています")
 
     return results
 
