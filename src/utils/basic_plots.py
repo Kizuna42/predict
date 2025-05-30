@@ -31,22 +31,27 @@ plt.rcParams.update({
 })
 
 
-def plot_feature_importance(feature_importance, zone, horizon, save_dir=None, top_n=15, save=True):
+def plot_feature_importance(model, feature_names, zone, horizon, save_path=None,
+                          top_n=15, model_type="予測", save=True):
     """
     特徴量重要度のプロット
 
     Parameters:
     -----------
-    feature_importance : DataFrame
-        特徴量と重要度を含むDataFrame
+    model : LGBMRegressor or similar model
+        学習済みモデル（feature_importances_属性を持つモデル）
+    feature_names : list
+        特徴量名のリスト
     zone : int
         ゾーン番号
     horizon : int
         予測ホライゾン（分）
-    save_dir : str, optional
-        グラフ保存ディレクトリ
+    save_path : str, optional
+        保存先パス（Noneの場合は保存しない）
     top_n : int, optional
         表示する特徴量数
+    model_type : str, optional
+        モデルタイプ（グラフタイトル用）
     save : bool, optional
         グラフを保存するか
 
@@ -55,25 +60,57 @@ def plot_feature_importance(feature_importance, zone, horizon, save_dir=None, to
     matplotlib.figure.Figure
         プロットのFigureオブジェクト
     """
+    # モデルから特徴量重要度を取得
+    try:
+        importances = model.feature_importances_
+    except AttributeError:
+        print(f"警告: モデルに feature_importances_ 属性がありません")
+        return None
+
+    # DataFrameを作成
+    feature_importance_df = pd.DataFrame({
+        'feature': feature_names,
+        'importance': importances
+    })
+
     # 重要度で降順ソート
-    importance_sorted = feature_importance.sort_values('importance', ascending=False)
+    importance_sorted = feature_importance_df.sort_values('importance', ascending=False)
 
     # 上位N個の特徴量を抽出
     top_features = importance_sorted.head(top_n)
 
     # プロット作成
     fig, ax = plt.subplots(figsize=(12, 8))
-    sns.barplot(x='importance', y='feature', data=top_features, ax=ax)
+    bars = ax.barh(range(len(top_features)), top_features['importance'])
 
-    ax.set_title(f'Zone {zone} - Feature Importance for {horizon}-min Prediction (Top {top_n})', fontsize=14)
-    ax.set_xlabel('Importance', fontsize=12)
-    ax.set_ylabel('Feature', fontsize=12)
+    # 色分け（重要度に応じて）
+    colors = plt.cm.viridis(np.linspace(0, 1, len(top_features)))
+    for bar, color in zip(bars, colors):
+        bar.set_color(color)
+
+    # 軸の設定
+    ax.set_yticks(range(len(top_features)))
+    ax.set_yticklabels(top_features['feature'])
+    ax.invert_yaxis()  # 上位から表示
+
+    ax.set_title(f'ゾーン{zone} - {model_type}モデル特徴量重要度 ({horizon}分後)', fontsize=14, fontweight='bold')
+    ax.set_xlabel('重要度', fontsize=12)
+    ax.set_ylabel('特徴量', fontsize=12)
+
+    # グリッド追加
+    ax.grid(True, alpha=0.3, axis='x')
+
+    # 値をバーの上に表示
+    for i, (bar, importance) in enumerate(zip(bars, top_features['importance'])):
+        ax.text(bar.get_width() + bar.get_width()*0.01, bar.get_y() + bar.get_height()/2,
+                f'{importance:.3f}', ha='left', va='center', fontsize=8)
+
+    plt.tight_layout()
 
     # グラフ保存
-    if save and save_dir:
-        output_path = os.path.join(save_dir, f'feature_importance_zone_{zone}_horizon_{horizon}.png')
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        print(f"特徴量重要度グラフ保存: {output_path}")
+    if save and save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"特徴量重要度グラフ保存: {save_path}")
 
     return fig
 

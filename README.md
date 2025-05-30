@@ -1,176 +1,265 @@
-# 空調システム室内温度予測モデル
+# 🌡️ 温度予測システム
 
-このプロジェクトは空調システムの室内温度を予測するための機械学習モデルを開発するためのコードを提供します。物理モデルベースの特徴量エンジニアリングと時系列予測を組み合わせて、より精度の高い未来温度予測を実現します。
+環境制御のための高精度温度予測システム。従来の直接温度予測と革新的な差分予測の両方をサポートします。
 
-## 🎯 主な特徴
+## 🎯 システム概要
 
-- **物理法則に基づいた特徴量エンジニアリング**: 熱力学的原理を考慮した特徴量生成
-- **完璧な時間軸修正システム**: 予測値と同じ時刻の実測値での正確な比較
-- **データリーク防止**: 未来値の適切な扱いによる厳密なデータリーク防止
-- **LAG 依存度低減**: 過去の温度履歴への過度な依存を回避
-- **マルチゾーン対応**: 複数ゾーンの同時予測
-- **複数ホライゾン**: 15 分、30 分、45 分、60 分の予測をサポート
-- **包括的な診断機能**: 詳細な分析と可視化
+### 解決する課題
 
-## 📁 ディレクトリ構造
+- **精密な温度制御**: 環境制御システムのための高精度温度予測
+- **ラグ問題の解決**: 従来予測の後追い問題を差分予測で改善
+- **リアルタイム予測**: 空調制御への即座の対応
 
-```
-.
-├── src/                          # ソースコードディレクトリ
-│   ├── data/                     # データ処理関連モジュール
-│   │   ├── preprocessing.py      # データ前処理
-│   │   └── feature_engineering.py # 特徴量生成
-│   ├── models/                   # モデル関連モジュール
-│   │   ├── training.py           # モデルトレーニング
-│   │   └── evaluation.py         # モデル評価
-│   ├── utils/                    # ユーティリティ
-│   │   ├── visualization.py      # 統合可視化システム
-│   │   ├── perfect_time_axis_visualization.py # 完璧な時間軸修正
-│   │   ├── advanced_visualization.py # 高度な可視化
-│   │   ├── basic_plots.py        # 基本プロット
-│   │   └── font_config.py        # フォント設定
-│   ├── diagnostics/              # 診断機能
-│   │   ├── lag_analysis.py       # LAG依存度分析
-│   │   ├── time_validation.py    # 時間軸検証
-│   │   ├── feature_analysis.py   # 特徴量分析
-│   │   ├── performance_metrics.py # 性能指標
-│   │   ├── comprehensive_lag_analysis.py # 包括的LAG分析
-│   │   └── time_axis_verification.py # 時間軸整合性検証
-│   └── config.py                 # 設定値
-├── Output/                       # 出力ディレクトリ
-│   ├── models/                   # 保存されたモデル
-│   ├── perfect_time_axis/        # 完璧な時間軸修正プロット
-│   ├── visualizations/           # 各種可視化ファイル
-│   └── lag_diagnosis/            # LAG診断結果
-├── main.py                       # メインスクリプト
-├── final_perfect_time_axis_demo.py # 完璧な時間軸修正デモ
-├── requirements.txt              # 依存パッケージ
-├── PERFECT_TIME_AXIS_SOLUTION_REPORT.md # 解決レポート
-└── README.md                     # このファイル
-```
+### 予測手法
 
-## 🚀 使い方
+#### 1. 従来の直接温度予測
 
-### 環境設定
+- **目的**: 将来の絶対温度値を直接予測
+- **特徴**: 安定した予測、既存システムとの互換性
+- **用途**: 基本的な温度管理、比較基準
 
-```bash
-# 必要なパッケージをインストール
-pip install -r requirements.txt
-```
+#### 2. 差分予測（革新的手法）
+
+- **目的**: 温度の変化量を予測し、現在温度に加算
+- **特徴**: ラグが少ない、高応答性、変化パターンの学習
+- **用途**: 精密制御、リアルタイム応答が必要な場面
+
+## 🚀 クイックスタート
 
 ### 基本実行
 
 ```bash
-# 全ゾーン・全ホライゾンで実行
+# 従来の直接温度予測
 python main.py
 
-# 特定のゾーンとホライゾンで実行（テストモード）
+# 差分予測システム
+python main.py --mode difference
+
+# 両方の手法を比較実行
+python main.py --mode both
+
+# テストモード（特定のゾーン・ホライゾン）
 python main.py --test --zones 1 2 --horizons 15 30
 ```
 
-### 完璧な時間軸修正デモ
-
-```bash
-# 包括的なデモンストレーション
-python final_perfect_time_axis_demo.py --mode report
-
-# 概念説明のみ
-python final_perfect_time_axis_demo.py --mode explain
-
-# デモのみ
-python final_perfect_time_axis_demo.py --mode demo
-```
-
-### プログラムからの利用
+### Python コードから実行
 
 ```python
-from src.utils.perfect_time_axis_visualization import create_simple_demo
+# 直接予測
+from main import run_temperature_prediction
+run_temperature_prediction(mode='direct')
 
-# 簡単なデモの実行
-result = create_simple_demo(zone=1, horizon=15, save_dir="output")
+# 差分予測
+run_temperature_prediction(mode='difference')
+
+# 比較実行
+run_temperature_prediction(mode='both')
 ```
 
-## 📊 出力
+## 📁 プロジェクト構造
 
-実行すると、以下の出力が生成されます：
+```
+prediction/
+├── main.py                    # 統合メインスクリプト
+├── src/
+│   ├── config.py             # 設定管理
+│   ├── data/
+│   │   ├── preprocessing.py   # データ前処理
+│   │   └── feature_engineering.py # 特徴量エンジニアリング
+│   ├── models/
+│   │   ├── training.py       # モデル訓練
+│   │   ├── evaluation.py     # モデル評価
+│   │   └── prediction.py     # 予測実行
+│   ├── utils/
+│   │   ├── visualization.py  # 可視化機能
+│   │   └── font_config.py    # フォント設定
+│   └── diagnostics/
+│       ├── performance_metrics.py # 性能分析
+│       └── time_validation.py     # 時間軸検証
+├── Output/
+│   ├── models/               # 学習済みモデル
+│   └── visualizations/       # 可視化結果
+├── requirements.txt
+└── README.md
+```
 
-### 基本出力
+## 🛠️ セットアップ
 
-- **学習済みモデル**: `Output/models/lgbm_model_zone_*_horizon_*.pkl`
-- **特徴量情報**: `Output/models/features_zone_*_horizon_*.pkl`
-- **特徴量重要度**: `Output/feature_importance_zone_*_horizon_*.png`
+### 必要要件
 
-### 完璧な時間軸修正
+- Python 3.8+
+- pandas, numpy, matplotlib, lightgbm, scikit-learn
 
-- **時間軸修正プロット**: `Output/perfect_time_axis/perfect_time_axis_zone_*_horizon_*.png`
-- **比較デモンストレーション**: 3 つの方法（間違った方法、部分修正、完璧な方法）の並列比較
-
-### 診断結果
-
-- **LAG 依存度分析**: `Output/lag_diagnosis/lag_analysis_report_horizon_*.json`
-- **時間軸検証**: 詳細な時間軸整合性レポート
-- **性能指標**: 包括的な予測性能評価
-
-### 高度な可視化
-
-- **超詳細分刻み分析**: 2 時間〜48 時間の詳細可視化
-- **修正済み時系列**: 時間軸修正済みの時系列プロット
-
-## 🎯 完璧な時間軸修正システム
-
-### 解決された問題
-
-従来の予測可視化では「後追い現象」が発生していました：
-
-- **問題**: 予測値が入力時刻に表示され、実測値の後追いに見える
-- **解決**: 予測値を予測対象時刻に表示し、同じ時刻の実測値と比較
-
-### 3 つの比較方法
-
-1. **❌ 間違った方法**: 予測値を入力時刻に表示
-2. **⚠️ 部分修正**: 予測値の時間軸のみ修正（比較対象が不適切）
-3. **✅ 完璧な方法**: 予測値と同じ時刻の実測値で正確な比較
-
-## 🛡️ データリーク防止対策
-
-1. **時系列特性の考慮**: 未来の値を使った特徴量エンジニアリングを禁止
-2. **移動平均の適切な設定**: `min_periods=1`で過去データのみ使用
-3. **多項式特徴量**: トレーニングデータのみで生成、テストデータには変換のみ適用
-4. **時系列分割**: ランダム分割を避け、時間順に分割して評価
-5. **LAG 特徴量の排除**: 過去の温度値への直接的な依存を回避
-
-## 📈 性能指標
-
-- **MAE (平均絶対誤差)**: 予測精度の基本指標
-- **RMSE (平方根平均二乗誤差)**: 大きな誤差に敏感な指標
-- **相関係数**: 予測値と実測値の線形関係
-- **R² 決定係数**: モデルの説明力
-- **LAG 依存度**: 過去値への依存度（0%が理想）
-
-## ⚠️ 注意事項
-
-- **データファイル**: `AllDayData.csv`を別途用意する必要があります
-- **メモリ使用量**: 大規模データセット使用時は注意が必要です
-- **フォント設定**: 日本語表示でエラーが発生する場合は、フォント設定を確認してください
-
-## 🔧 トラブルシューティング
-
-### フォントエラー
+### インストール
 
 ```bash
-# フォント設定エラーの場合、デフォルトフォントが自動使用されます
-# 日本語表示が必要な場合は、システムに適切なフォントをインストールしてください
+# リポジトリをクローン
+git clone <repository-url>
+cd prediction
+
+# 依存関係をインストール
+pip install -r requirements.txt
+
+# データファイルを配置
+# AllDayData.csv をルートディレクトリに配置
 ```
 
-### メモリ不足
+## 📊 評価指標と出力
+
+### 共通評価指標
+
+- **RMSE**: 予測精度の基本指標
+- **MAE**: 平均絶対誤差
+- **R²**: 決定係数
+- **MAPE**: 平均絶対パーセント誤差
+
+### 差分予測専用指標
+
+- **変化方向一致率**: 温度上昇/下降の予測精度
+- **小変化感度**: 微小変化（±0.1℃）への感度
+- **大変化精度**: 大きな変化（±0.5℃ 以上）の予測精度
+
+### 出力ファイル
+
+#### モデルファイル
+
+- `Output/models/lgbm_model_zone_*_horizon_*.pkl` - 直接予測モデル
+- `Output/models/diff_model_zone_*_horizon_*.pkl` - 差分予測モデル
+
+#### 可視化
+
+- `Output/visualizations/feature_importance_*.png` - 特徴量重要度
+- `Output/visualizations/prediction_results_*.png` - 予測結果
+- `Output/visualizations/comparison_*.png` - 手法比較
+
+## 🔧 高度な使用方法
+
+### コマンドラインオプション
 
 ```bash
-# テストモードで実行してメモリ使用量を削減
-python main.py --test --zones 1 --horizons 15
+# 基本オプション
+python main.py --mode [direct|difference|both]    # 予測手法選択
+python main.py --test                              # テストモード
+python main.py --zones 1 2 3                      # 対象ゾーン指定
+python main.py --horizons 15 30 60                # 予測ホライゾン指定
+
+# 詳細オプション
+python main.py --no-visualization                 # 可視化スキップ
+python main.py --save-models                      # モデル保存
+python main.py --comparison-only                  # 比較のみ実行
 ```
 
-## 📚 詳細ドキュメント
+### カスタム設定
 
-- **完璧な時間軸修正**: `PERFECT_TIME_AXIS_SOLUTION_REPORT.md`
-- **技術的詳細**: ソースコード内の docstring
-- **診断機能**: `src/diagnostics/`モジュール
+`src/config.py`で設定をカスタマイズ可能：
+
+```python
+# 予測ホライゾン（分）
+HORIZONS = [15, 30, 60, 120]
+
+# 対象ゾーン
+ZONES = [1, 2, 3, 4, 5, 6, 7, 8]
+
+# モデルパラメータ
+LGBM_PARAMS = {
+    'learning_rate': 0.05,
+    'n_estimators': 1000,
+    # ...
+}
+```
+
+## 📈 技術的特徴
+
+### データ前処理
+
+- **外れ値除去**: 物理的に不可能な温度値の除去
+- **スムージング**: ノイズ除去のための移動平均
+- **時間特徴量**: 周期的時間パターンの抽出
+
+### 特徴量エンジニアリング
+
+- **物理ベース特徴量**: 熱力学的関係を考慮した特徴量
+- **制御状態特徴量**: 空調システムの状態情報
+- **環境特徴量**: 外気温、日射量などの外部条件
+
+### モデル最適化
+
+- **時系列分割**: データリーク防止の厳密な分割
+- **重み付け学習**: 重要な変化に対する重み付け
+- **アンサンブル**: 複数モデルの組み合わせ
+
+## 🎨 可視化機能
+
+### 予測結果の可視化
+
+- 時系列プロット
+- 散布図による精度評価
+- 残差分析
+
+### 特徴量分析
+
+- 重要度ランキング
+- 相関分析
+- LAG 依存度分析
+
+### 手法比較
+
+- 性能比較グラフ
+- 誤差分布分析
+- 改善効果の定量化
+
+## 🚨 注意点とベストプラクティス
+
+### データ品質
+
+- ✅ 十分なデータ量（最低 1 週間以上）
+- ✅ 欠損値の適切な処理
+- ✅ 外れ値の事前確認
+
+### モデル運用
+
+- ⚠️ 定期的な再学習の実施
+- ⚠️ 予測精度の継続的監視
+- ⚠️ 季節変動への対応
+
+### 差分予測の考慮点
+
+- 📝 現在温度との加算による温度復元が必要
+- 📝 連続予測時の誤差蓄積に注意
+- 📝 急激な環境変化時の性能確認
+
+## 🤝 開発・貢献
+
+### 拡張可能性
+
+- **新しい特徴量**: ドメイン知識に基づく特徴量追加
+- **モデルアルゴリズム**: 他の機械学習手法の組み込み
+- **リアルタイム予測**: ストリーミングデータ対応
+
+### コード品質
+
+- 型ヒントの使用
+- 包括的なテストケース
+- 詳細なドキュメント
+
+## 📚 参考資料
+
+### 技術文書
+
+- 機械学習による時系列予測
+- LightGBM 公式ドキュメント
+- 温度制御システム設計原理
+
+### 関連論文
+
+- 建物内温度予測手法
+- 機械学習を用いた環境制御
+- 時系列データの特徴量エンジニアリング
+
+---
+
+## 🎉 まとめ
+
+本温度予測システムは、従来の直接予測と革新的な差分予測を組み合わせることで、高精度かつ応答性の高い温度制御を実現します。用途に応じて最適な手法を選択し、環境制御システムの性能向上に貢献できます。
+
+**🚀 今すぐ始める**: `python main.py --mode both --test`でサンプル実行

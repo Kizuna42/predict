@@ -6,16 +6,16 @@
 LAG分析、時間軸検証、パフォーマンス診断などの診断機能を提供
 """
 
-from .lag_analysis import analyze_lag_dependency, detect_lag_following_pattern
-from .time_validation import validate_prediction_timing, create_correct_prediction_timestamps
-from .feature_analysis import analyze_feature_patterns
-from .performance_metrics import calculate_comprehensive_metrics
+from .performance_metrics import *
+from .time_validation import *
 
+# 公開API
 __all__ = [
-    'analyze_lag_dependency',
-    'detect_lag_following_pattern',
+    # performance_metrics
+    'calculate_comprehensive_metrics',
+    'print_performance_summary',
+
+    # time_validation
     'validate_prediction_timing',
-    'create_correct_prediction_timestamps',
-    'analyze_feature_patterns',
-    'calculate_comprehensive_metrics'
+    'check_data_leakage'
 ]

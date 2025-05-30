@@ -147,6 +147,54 @@ def create_future_targets(df, zone_nums, horizons_minutes, time_diff):
     return df_copy
 
 
+def create_temperature_difference_targets(df, zone_nums, horizons_minutes, time_diff):
+    """
+    各ゾーンの温度差分（将来温度 - 現在温度）を目的変数として作成
+
+    温度そのものではなく変化量を予測することで、ラグの少ない先読み予測を実現する。
+
+    Parameters:
+    -----------
+    df : DataFrame
+        時系列インデックスを持つデータフレーム
+    zone_nums : list
+        ゾーン番号のリスト（例：[1, 2, 3, ...]）
+    horizons_minutes : list
+        予測ホライゾン（分）のリスト
+    time_diff : Timedelta
+        データのサンプリング間隔
+
+    Returns:
+    --------
+    DataFrame
+        温度差分特徴量を追加したデータフレーム
+    """
+    print("\n## 温度差分予測の目的変数を作成中...")
+    df_copy = df.copy()
+
+    for zone in zone_nums:
+        source_col = f'sens_temp_{zone}'
+        if source_col not in df.columns:
+            print(f"警告: 列 {source_col} が見つかりません")
+            continue
+
+        for horizon in horizons_minutes:
+            # 時間間隔から必要なシフト数を計算
+            shift_periods = int(horizon / time_diff.total_seconds() * 60)
+
+            # 指定分後の温度を取得
+            future_temp = df_copy[source_col].shift(-shift_periods)
+            current_temp = df_copy[source_col]
+
+            # 温度差分を計算（将来温度 - 現在温度）
+            target_col = f'temp_diff_{zone}_future_{horizon}'
+            df_copy[target_col] = future_temp - current_temp
+
+            print(f"温度差分目的変数を作成: {target_col}")
+
+    return df_copy
+
+
 def prepare_time_features(df):
     """
     時間関連の特徴量を作成する関数
