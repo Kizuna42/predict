@@ -118,11 +118,60 @@ def plot_feature_importance(model, feature_names, zone, horizon, save_path=None,
     return fig
 
 
+def analyze_lag_dependency(model, feature_names):
+    """
+    モデルの特徴量重要度からLAG依存度を分析
+
+    Parameters:
+    -----------
+    model : trained model
+        学習済みモデル
+    feature_names : list
+        特徴量名のリスト
+
+    Returns:
+    --------
+    dict
+        LAG依存度分析結果
+    """
+    try:
+        importances = model.feature_importances_
+    except AttributeError:
+        return {'lag_temp_percent': 0, 'rolling_temp_percent': 0, 'total_lag_percent': 0}
+
+    # 特徴量重要度の合計
+    total_importance = np.sum(importances)
+
+    if total_importance == 0:
+        return {'lag_temp_percent': 0, 'rolling_temp_percent': 0, 'total_lag_percent': 0}
+
+    # LAG系特徴量の重要度を計算
+    lag_importance = 0
+    rolling_importance = 0
+
+    for i, feature_name in enumerate(feature_names):
+        if 'lag' in feature_name.lower() and 'temp' in feature_name.lower():
+            lag_importance += importances[i]
+        elif 'rolling' in feature_name.lower() and 'temp' in feature_name.lower():
+            rolling_importance += importances[i]
+
+    # パーセンテージ計算
+    lag_temp_percent = (lag_importance / total_importance) * 100
+    rolling_temp_percent = (rolling_importance / total_importance) * 100
+    total_lag_percent = lag_temp_percent + rolling_temp_percent
+
+    return {
+        'lag_temp_percent': lag_temp_percent,
+        'rolling_temp_percent': rolling_temp_percent,
+        'total_lag_percent': total_lag_percent
+    }
+
+
 def plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
                                save_path=None, model_type="Prediction", save=True,
-                               show_period_days=7):
+                               show_period_hours=24, detailed_mode=True, model=None, feature_names=None):
     """
-    時系列での実際値と予測値の比較プロット
+    超詳細時系列での実際値と予測値の比較プロット（分刻みスケール対応）
 
     Parameters:
     -----------
@@ -131,7 +180,7 @@ def plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
     y_pred : array-like
         予測値
     timestamps : array-like
-        時刻データ
+        時刻データ（実際値の時刻）
     zone : int
         ゾーン番号
     horizon : int
@@ -142,73 +191,213 @@ def plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
         モデルタイプ
     save : bool
         保存するか
-    show_period_days : int
-        表示期間（日数）
+    show_period_hours : int
+        表示期間（時間）
+    detailed_mode : bool
+        詳細モード（分刻み表示）
+    model : trained model, optional
+        学習済みモデル
+    feature_names : list, optional
+        特徴量名のリスト
 
     Returns:
     --------
     matplotlib.figure.Figure
         プロットのFigureオブジェクト
     """
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 12))
+    import matplotlib.dates as mdates
+    from sklearn.metrics import r2_score
+    import math
 
-    # データの準備
-    df_plot = pd.DataFrame({
-        'timestamp': timestamps,
-        'actual': y_true,
-        'predicted': y_pred,
-        'error': y_pred - y_true
-    })
+    # データの前処理
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    timestamps = pd.to_datetime(timestamps)
 
-    # 表示期間を制限
-    if len(df_plot) > show_period_days * 24 * 60 / 5:  # 5分間隔想定
-        sample_size = int(show_period_days * 24 * 60 / 5)
-        df_plot = df_plot.iloc[-sample_size:].copy()
+    # 有効データのフィルタリング
+    valid_indices = ~(pd.isna(y_true) | pd.isna(y_pred) |
+                     np.isinf(y_true) | np.isinf(y_pred))
 
-    # 上段: 時系列比較
-    ax1.plot(df_plot['timestamp'], df_plot['actual'],
-            label='Actual Temperature', color='blue', linewidth=2, alpha=0.8)
-    ax1.plot(df_plot['timestamp'], df_plot['predicted'],
-            label='Predicted Temperature', color='red', linewidth=2, alpha=0.8)
+    timestamps_valid = timestamps[valid_indices]
+    y_true_valid = y_true[valid_indices]
+    y_pred_valid = y_pred[valid_indices]
 
-    ax1.set_title(f'Zone {zone} - {model_type} vs Actual Temperature ({horizon}min Prediction)',
-                 fontsize=14, fontweight='bold')
-    ax1.set_ylabel('Temperature (°C)', fontsize=12)
-    ax1.legend(fontsize=11)
-    ax1.grid(True, alpha=0.3)
+    if len(timestamps_valid) == 0:
+        print("警告: 有効なデータがありません")
+        return None
 
-    # 下段: 予測誤差
-    ax2.plot(df_plot['timestamp'], df_plot['error'],
-            color='green', linewidth=1.5, alpha=0.7)
-    ax2.axhline(y=0, color='black', linestyle='--', alpha=0.5)
-    ax2.fill_between(df_plot['timestamp'], df_plot['error'], 0,
-                    alpha=0.3, color='green')
+    # 表示期間の設定
+    if len(timestamps_valid) > 0:
+        end_time = timestamps_valid[-1]
+        start_time = end_time - pd.Timedelta(hours=show_period_hours)
 
-    ax2.set_title(f'Prediction Error (Predicted - Actual)', fontsize=14)
-    ax2.set_xlabel('Time', fontsize=12)
-    ax2.set_ylabel('Error (°C)', fontsize=12)
-    ax2.grid(True, alpha=0.3)
+        period_mask = (timestamps_valid >= start_time) & (timestamps_valid <= end_time)
+        timestamps_period = timestamps_valid[period_mask]
+        y_true_period = y_true_valid[period_mask]
+        y_pred_period = y_pred_valid[period_mask]
 
-    # x軸の日時フォーマット
-    for ax in [ax1, ax2]:
-        ax.tick_params(axis='x', rotation=45)
+        if len(timestamps_period) == 0:
+            # データが少ない場合は利用可能な全データを使用
+            max_points = min(len(timestamps_valid), show_period_hours * 60)
+            timestamps_period = timestamps_valid[-max_points:]
+            y_true_period = y_true_valid[-max_points:]
+            y_pred_period = y_pred_valid[-max_points:]
+
+    # 正確な予測時間軸を作成（入力時刻 + 予測ホライゾン）
+    prediction_timestamps = timestamps_period + pd.Timedelta(minutes=horizon)
+
+    # 詳細モードに基づくレイアウト設定
+    if detailed_mode:
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(20, 14))
+    else:
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 12))
+
+    # 上段: 超詳細時系列比較
+    # 実測値（太い青線、マーカー付き）
+    ax1.plot(timestamps_period, y_true_period, 'b-', linewidth=3,
+            marker='o', markersize=4, markevery=max(1, len(timestamps_period)//50),
+            label='実測値', alpha=0.9, zorder=4)
+
+    # 予測値（正確な時間軸、赤い破線、マーカー付き）
+    ax1.plot(prediction_timestamps, y_pred_period, 'r--', linewidth=2.5,
+            marker='s', markersize=3, markevery=max(1, len(prediction_timestamps)//50),
+            label=f'予測値 (+{horizon}分後)', alpha=0.8, zorder=3)
+
+    # 時間軸の詳細設定（分刻み表示）
+    if show_period_hours <= 2:
+        # 2時間以下：5分間隔
+        ax1.xaxis.set_major_locator(mdates.MinuteLocator(interval=5))
+        ax1.xaxis.set_minor_locator(mdates.MinuteLocator(interval=1))
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+    elif show_period_hours <= 6:
+        # 6時間以下：15分間隔
+        ax1.xaxis.set_major_locator(mdates.MinuteLocator(interval=15))
+        ax1.xaxis.set_minor_locator(mdates.MinuteLocator(interval=5))
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\\n%H:%M'))
+    elif show_period_hours <= 12:
+        # 12時間以下：30分間隔
+        ax1.xaxis.set_major_locator(mdates.MinuteLocator(interval=30))
+        ax1.xaxis.set_minor_locator(mdates.MinuteLocator(interval=10))
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\\n%H:%M'))
+    elif show_period_hours <= 24:
+        # 24時間以下：1時間間隔
+        ax1.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+        ax1.xaxis.set_minor_locator(mdates.MinuteLocator(interval=30))
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\\n%H:%M'))
+    else:
+        # 24時間超：2時間間隔
+        ax1.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+        ax1.xaxis.set_minor_locator(mdates.HourLocator(interval=1))
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\\n%H:%M'))
+
+    ax1.tick_params(axis='x', rotation=45, labelsize=10)
+    ax1.tick_params(axis='both', which='major', labelsize=10)
+    ax1.tick_params(axis='both', which='minor', labelsize=8)
+
+    # LAG依存度分析（モデルが提供された場合）
+    lag_analysis = {'total_lag_percent': 0}
+    if model is not None and feature_names is not None:
+        lag_analysis = analyze_lag_dependency(model, feature_names)
+
+    # タイトルにLAG依存度情報を含める
+    total_lag = lag_analysis['total_lag_percent']
+    if total_lag > 30:
+        lag_info = f' [High LAG Dependency: {total_lag:.1f}%]'
+        title_color = 'darkred'
+    elif total_lag > 15:
+        lag_info = f' [Medium LAG Dependency: {total_lag:.1f}%]'
+        title_color = 'darkorange'
+    elif total_lag > 0:
+        lag_info = f' [Low LAG Dependency: {total_lag:.1f}%]'
+        title_color = 'darkgreen'
+    else:
+        lag_info = ''
+        title_color = 'black'
+
+    title = (f'Zone {zone} - {model_type} vs Actual Temperature ({horizon}min Prediction)\\n'
+            f'Ultra-Detailed Timeseries ({show_period_hours}h Period){lag_info}')
+
+    ax1.set_title(title, fontsize=16, fontweight='bold', color=title_color)
+    ax1.set_ylabel('Temperature (°C)', fontsize=12, fontweight='bold')
+    ax1.legend(fontsize=12, framealpha=0.9)
+
+    # 詳細グリッド
+    ax1.grid(True, linestyle='-', alpha=0.3, which='major')
+    ax1.grid(True, linestyle=':', alpha=0.2, which='minor')
+
+    # 下段: 予測誤差（時間軸を合わせるため、重複部分のみ使用）
+    # 重複する時間範囲を計算
+    actual_start = timestamps_period.min()
+    actual_end = timestamps_period.max()
+    pred_start = prediction_timestamps.min()
+    pred_end = prediction_timestamps.max()
+
+    overlap_start = max(actual_start, pred_start)
+    overlap_end = min(actual_end, pred_end)
+
+    # 重複範囲内のデータのみを抽出
+    actual_mask = (timestamps_period >= overlap_start) & (timestamps_period <= overlap_end)
+    pred_mask = (prediction_timestamps >= overlap_start) & (prediction_timestamps <= overlap_end)
+
+    timestamps_aligned = timestamps_period[actual_mask]
+    y_true_aligned = y_true_period[actual_mask]
+    prediction_timestamps_aligned = prediction_timestamps[pred_mask]
+    y_pred_aligned = y_pred_period[pred_mask]
+
+    # 長さを確認して調整
+    min_length = min(len(timestamps_aligned), len(prediction_timestamps_aligned))
+    if min_length > 0:
+        timestamps_aligned = timestamps_aligned[:min_length]
+        y_true_aligned = y_true_aligned[:min_length]
+        prediction_timestamps_aligned = prediction_timestamps_aligned[:min_length]
+        y_pred_aligned = y_pred_aligned[:min_length]
+
+        # 誤差計算（時間軸を合わせた後）
+        error = y_pred_aligned - y_true_aligned
+
+        # 誤差プロット
+        ax2.plot(timestamps_aligned, error, color='green', linewidth=1.5, alpha=0.7)
+        ax2.axhline(y=0, color='black', linestyle='--', alpha=0.5)
+        ax2.fill_between(timestamps_aligned, error, 0, alpha=0.3, color='green')
+
+        # 時間軸の設定を上段と同じにする
+        ax2.xaxis.set_major_locator(ax1.xaxis.get_major_locator())
+        ax2.xaxis.set_minor_locator(ax1.xaxis.get_minor_locator())
+        ax2.xaxis.set_major_formatter(ax1.xaxis.get_major_formatter())
+        ax2.tick_params(axis='x', rotation=45, labelsize=10)
+        ax2.tick_params(axis='both', which='major', labelsize=10)
+        ax2.tick_params(axis='both', which='minor', labelsize=8)
+
+        # 詳細統計計算
+        mae = np.mean(np.abs(error))
+        rmse = np.sqrt(np.mean(error**2))
+        r2 = r2_score(y_true_aligned, y_pred_aligned)
+        max_error = np.max(np.abs(error))
+
+        # 統計情報をグラフに表示
+        stats_text = f'MAE: {mae:.3f}°C\\nRMSE: {rmse:.3f}°C\\nR²: {r2:.3f}\\nMax Error: {max_error:.3f}°C'
+        props = dict(boxstyle='round,pad=0.4', facecolor='lightblue', alpha=0.8)
+        ax1.text(0.02, 0.98, stats_text, transform=ax1.transAxes, fontsize=11,
+                verticalalignment='top', bbox=props, fontweight='bold')
+
+        # データ点数情報
+        data_info = f'Data Points: {min_length}\\nTime Range: {show_period_hours}h'
+        ax1.text(0.98, 0.02, data_info, transform=ax1.transAxes,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
+                verticalalignment='bottom', horizontalalignment='right', fontsize=10)
+
+    ax2.set_title(f'Prediction Error (Predicted - Actual) - Aligned Timescale', fontsize=14)
+    ax2.set_xlabel('Time', fontsize=12, fontweight='bold')
+    ax2.set_ylabel('Error (°C)', fontsize=12, fontweight='bold')
+    ax2.grid(True, linestyle='-', alpha=0.3, which='major')
+    ax2.grid(True, linestyle=':', alpha=0.2, which='minor')
 
     plt.tight_layout()
-
-    # 統計情報を追加
-    rmse = np.sqrt(np.mean(df_plot['error']**2))
-    mae = np.mean(np.abs(df_plot['error']))
-    r2 = np.corrcoef(df_plot['actual'], df_plot['predicted'])[0, 1]**2
-
-    textstr = f'RMSE: {rmse:.3f}°C\nMAE: {mae:.3f}°C\nR²: {r2:.3f}'
-    props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
-    ax1.text(0.02, 0.98, textstr, transform=ax1.transAxes, fontsize=11,
-            verticalalignment='top', bbox=props)
 
     # グラフ保存
     if save and save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"時系列比較グラフ保存: {save_path}")
+        print(f"超詳細時系列比較グラフ保存: {save_path}")
 
     return fig
 
@@ -491,7 +680,10 @@ def create_comprehensive_visualization_report(model, feature_names, y_true, y_pr
 
     # 2. 時系列比較
     timeseries_path = os.path.join(save_dir, f"{model_type.lower()}_timeseries_zone_{zone}_horizon_{horizon}.png")
-    plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon, timeseries_path, model_type=model_type)
+    plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
+                              timeseries_path, model_type=model_type,
+                              show_period_hours=24, detailed_mode=True,
+                              model=model, feature_names=feature_names)
     created_files['timeseries'] = timeseries_path
 
     # 3. 散布図分析
@@ -518,5 +710,6 @@ __all__ = [
     'plot_scatter_analysis',
     'plot_performance_summary',
     'plot_comparison_analysis',
-    'create_comprehensive_visualization_report'
+    'create_comprehensive_visualization_report',
+    'analyze_lag_dependency'
 ]

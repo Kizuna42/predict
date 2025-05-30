@@ -334,7 +334,8 @@ def run_difference_prediction(df, zones, horizons, save_models=True, create_visu
                         plot_time_series_comparison(
                             test_df[future_target_col], y_restored, test_timestamps,
                             zone, horizon, str(restored_timeseries_path),
-                            model_type="Difference (Restored)", save=True
+                            model_type="Difference (Restored)", save=True,
+                            show_period_hours=24, detailed_mode=True
                         )
 
                     print(f"差分予測の包括的可視化を作成: ゾーン{zone}, {horizon}分後")
