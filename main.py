@@ -57,7 +57,14 @@ from src.models.evaluation import (
 )
 
 # 可視化関数のインポート
-from src.utils.basic_plots import plot_feature_importance
+from src.utils.basic_plots import (
+    plot_feature_importance,
+    plot_time_series_comparison,
+    plot_scatter_analysis,
+    plot_performance_summary,
+    plot_comparison_analysis,
+    create_comprehensive_visualization_report
+)
 
 
 def setup_output_directories():
@@ -174,10 +181,23 @@ def run_direct_prediction(df, zones, horizons, save_models=True, create_visualiz
             # 可視化作成
             if create_visualizations:
                 try:
-                    viz_path = viz_dir / f"direct_feature_importance_zone_{zone}_horizon_{horizon}.png"
-                    plot_feature_importance(model, feature_cols, zone, horizon,
-                                          save_path=str(viz_path), model_type="直接予測")
-                    print(f"特徴量重要度を保存: {viz_path}")
+                    # 包括的可視化レポートの作成
+                    test_timestamps = test_df.index
+                    created_visualizations = create_comprehensive_visualization_report(
+                        model=model,
+                        feature_names=feature_cols,
+                        y_true=y_test,
+                        y_pred=y_pred,
+                        timestamps=test_timestamps,
+                        metrics=metrics,
+                        zone=zone,
+                        horizon=horizon,
+                        model_type="Direct",
+                        save_dir=str(viz_dir)
+                    )
+
+                    print(f"直接予測の包括的可視化を作成: ゾーン{zone}, {horizon}分後")
+
                 except Exception as e:
                     print(f"可視化エラー: {e}")
 
@@ -289,10 +309,36 @@ def run_difference_prediction(df, zones, horizons, save_models=True, create_visu
             # 可視化作成
             if create_visualizations:
                 try:
-                    viz_path = viz_dir / f"diff_feature_importance_zone_{zone}_horizon_{horizon}.png"
-                    plot_feature_importance(diff_model, feature_cols, zone, horizon,
-                                          save_path=str(viz_path), model_type="差分予測")
-                    print(f"特徴量重要度を保存: {viz_path}")
+                    # 温度復元
+                    y_restored = y_pred_diff + current_temps_test
+                    test_timestamps = test_df.index
+
+                    # 包括的可視化レポートの作成
+                    created_visualizations = create_comprehensive_visualization_report(
+                        model=diff_model,
+                        feature_names=feature_cols,
+                        y_true=y_test_diff,
+                        y_pred=y_pred_diff,
+                        timestamps=test_timestamps,
+                        metrics=diff_metrics,
+                        zone=zone,
+                        horizon=horizon,
+                        model_type="Difference",
+                        save_dir=str(viz_dir)
+                    )
+
+                    # 復元温度の時系列比較も作成
+                    restored_timeseries_path = viz_dir / f"difference_restored_timeseries_zone_{zone}_horizon_{horizon}.png"
+                    future_target_col = f'sens_temp_{zone}_future_{horizon}'
+                    if future_target_col in test_df.columns:
+                        plot_time_series_comparison(
+                            test_df[future_target_col], y_restored, test_timestamps,
+                            zone, horizon, str(restored_timeseries_path),
+                            model_type="Difference (Restored)", save=True
+                        )
+
+                    print(f"差分予測の包括的可視化を作成: ゾーン{zone}, {horizon}分後")
+
                 except Exception as e:
                     print(f"可視化エラー: {e}")
 
@@ -391,6 +437,17 @@ def run_comparison_analysis(df, zones, horizons):
                 direct_metrics, diff_metrics, current_temps_test, y_test_direct
             )
             print_prediction_comparison(comparison, zone, horizon)
+
+            # 比較可視化の作成
+            try:
+                comparison_path = viz_dir / f"method_comparison_zone_{zone}_horizon_{horizon}.png"
+                plot_comparison_analysis(
+                    direct_metrics, diff_metrics, zone, horizon,
+                    save_path=str(comparison_path), save=True
+                )
+                print(f"比較分析グラフ保存: {comparison_path}")
+            except Exception as e:
+                print(f"比較可視化エラー: {e}")
 
 
 def run_temperature_prediction(mode='both', test_mode=False, zones=None, horizons=None,
