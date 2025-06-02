@@ -264,3 +264,98 @@ def get_time_based_train_test_split(df, test_size=0.2):
     print(f"トレーニングデータ: {train_df.shape[0]}行, テストデータ: {test_df.shape[0]}行")
 
     return train_df, test_df
+
+
+def filter_high_value_targets(df, target_cols, threshold=None, percentile=75):
+    """
+    目的変数の値が高いデータのみをフィルタリングする関数
+
+    Parameters:
+    -----------
+    df : DataFrame
+        フィルタリング対象のデータフレーム
+    target_cols : list
+        目的変数の列名リスト
+    threshold : float, optional
+        フィルタリング閾値（指定されない場合はpercentileを使用）
+    percentile : float, optional
+        パーセンタイル閾値（0-100）
+
+    Returns:
+    --------
+    DataFrame
+        フィルタリング後のデータフレーム
+    dict
+        フィルタリング情報
+    """
+    print(f"\n🔍 高値目的変数フィルタリング実行中...")
+
+    df_filtered = df.copy()
+    filter_info = {
+        'original_count': len(df),
+        'filtered_count': 0,
+        'removed_count': 0,
+        'thresholds': {},
+        'target_stats': {}
+    }
+
+    # 各目的変数の統計情報を収集
+    for target_col in target_cols:
+        if target_col in df.columns:
+            target_values = df[target_col].dropna()
+            if len(target_values) > 0:
+                stats = {
+                    'mean': target_values.mean(),
+                    'std': target_values.std(),
+                    'min': target_values.min(),
+                    'max': target_values.max(),
+                    'q25': target_values.quantile(0.25),
+                    'q50': target_values.quantile(0.50),
+                    'q75': target_values.quantile(0.75),
+                    'q90': target_values.quantile(0.90),
+                    'q95': target_values.quantile(0.95)
+                }
+                filter_info['target_stats'][target_col] = stats
+
+                # 閾値の決定
+                if threshold is None:
+                    filter_threshold = target_values.quantile(percentile / 100.0)
+                else:
+                    filter_threshold = threshold
+
+                filter_info['thresholds'][target_col] = filter_threshold
+
+                print(f"📊 {target_col} 統計:")
+                print(f"  平均: {stats['mean']:.3f}, 標準偏差: {stats['std']:.3f}")
+                print(f"  範囲: {stats['min']:.3f} - {stats['max']:.3f}")
+                print(f"  パーセンタイル: 25%={stats['q25']:.3f}, 50%={stats['q50']:.3f}, 75%={stats['q75']:.3f}")
+                print(f"  フィルタ閾値: {filter_threshold:.3f} (>{percentile}%ile)")
+
+    # フィルタリング実行
+    if filter_info['thresholds']:
+        # 全ての目的変数が閾値以上の行のみを保持
+        mask = pd.Series(True, index=df.index)
+
+        for target_col, threshold_val in filter_info['thresholds'].items():
+            if target_col in df.columns:
+                target_mask = df[target_col] >= threshold_val
+                mask = mask & target_mask
+
+                before_count = mask.sum()
+                print(f"  {target_col} >= {threshold_val:.3f}: {before_count}行が条件を満たす")
+
+        df_filtered = df[mask].copy()
+        filter_info['filtered_count'] = len(df_filtered)
+        filter_info['removed_count'] = filter_info['original_count'] - filter_info['filtered_count']
+
+        print(f"\n✅ フィルタリング完了:")
+        print(f"  元データ: {filter_info['original_count']:,}行")
+        print(f"  フィルタ後: {filter_info['filtered_count']:,}行")
+        print(f"  除去データ: {filter_info['removed_count']:,}行 ({filter_info['removed_count']/filter_info['original_count']*100:.1f}%)")
+
+        if filter_info['filtered_count'] < 100:
+            print(f"⚠️  警告: フィルタ後のデータが少なすぎます ({filter_info['filtered_count']}行)")
+    else:
+        print("⚠️  警告: 有効な目的変数が見つかりませんでした")
+
+    return df_filtered, filter_info

@@ -845,6 +845,349 @@ def create_optimized_features_pipeline(df, zone_nums, horizons_minutes, time_dif
     return df_processed, existing_features, feature_info
 
 
+def create_difference_prediction_features(df, zone_nums, horizons_minutes, time_diff_seconds):
+    """
+    差分予測に特化した特徴量を作成する関数
+
+    温度変化量の予測に有効な特徴量を生成：
+    - 温度変化率の履歴
+    - 空調制御の変化パターン
+    - 外部環境の変化率
+    - 時系列パターン特徴量
+
+    Parameters:
+    -----------
+    df : DataFrame
+        時系列インデックスを持つデータフレーム
+    zone_nums : list
+        ゾーン番号のリスト
+    horizons_minutes : list
+        予測ホライゾン（分）のリスト
+    time_diff_seconds : int または float
+        データのサンプリング間隔（秒）
+
+    Returns:
+    --------
+    DataFrame
+        差分予測特化特徴量を追加したデータフレーム
+    list
+        作成された特徴量のリスト
+    """
+    print("🔥 差分予測特化特徴量を作成中...")
+    df_copy = df.copy()
+    diff_features = []
+
+    # 各ゾーンの差分予測特化特徴量
+    for zone in zone_nums:
+        if f'sens_temp_{zone}' in df.columns:
+            # 1. 温度変化率の履歴（複数時間窓）
+            temp_col = f'sens_temp_{zone}'
+
+            # 短期変化率（5分、10分、15分前との差）
+            for minutes_back in [5, 10, 15]:
+                shift_steps = int(minutes_back * 60 / time_diff_seconds)
+                change_col = f'temp_change_{zone}_{minutes_back}min'
+                df_copy[change_col] = df_copy[temp_col] - df_copy[temp_col].shift(shift_steps)
+                diff_features.append(change_col)
+
+            # 変化率の変化率（加速度的変化）
+            temp_rate = df_copy[temp_col].diff()
+            df_copy[f'temp_acceleration_{zone}'] = temp_rate.diff()
+            diff_features.append(f'temp_acceleration_{zone}')
+
+            # 変化方向の持続性（連続する変化方向の回数）
+            temp_direction = np.sign(temp_rate)
+            direction_persistence = temp_direction.groupby((temp_direction != temp_direction.shift()).cumsum()).cumcount() + 1
+            df_copy[f'temp_direction_persistence_{zone}'] = direction_persistence
+            diff_features.append(f'temp_direction_persistence_{zone}')
+
+            # 2. 空調制御の変化パターン
+            if f'AC_valid_{zone}' in df.columns:
+                # 空調状態の変化
+                ac_change = df_copy[f'AC_valid_{zone}'].diff()
+                df_copy[f'ac_state_change_{zone}'] = ac_change
+                diff_features.append(f'ac_state_change_{zone}')
+
+                # 空調ON/OFF後の経過時間
+                ac_on_periods = (df_copy[f'AC_valid_{zone}'] == 1).astype(int)
+                ac_off_periods = (df_copy[f'AC_valid_{zone}'] == 0).astype(int)
+
+                # ON状態の継続時間
+                ac_on_duration = ac_on_periods.groupby((ac_on_periods != ac_on_periods.shift()).cumsum()).cumcount() + 1
+                ac_on_duration = ac_on_duration * ac_on_periods  # OFF時は0にリセット
+                df_copy[f'ac_on_duration_{zone}'] = ac_on_duration
+                diff_features.append(f'ac_on_duration_{zone}')
+
+                # OFF状態の継続時間
+                ac_off_duration = ac_off_periods.groupby((ac_off_periods != ac_off_periods.shift()).cumsum()).cumcount() + 1
+                ac_off_duration = ac_off_duration * ac_off_periods  # ON時は0にリセット
+                df_copy[f'ac_off_duration_{zone}'] = ac_off_duration
+                diff_features.append(f'ac_off_duration_{zone}')
+
+            if f'AC_set_{zone}' in df.columns:
+                # 設定温度の変化
+                setpoint_change = df_copy[f'AC_set_{zone}'].diff()
+                df_copy[f'setpoint_change_{zone}'] = setpoint_change
+                diff_features.append(f'setpoint_change_{zone}')
+
+                # 設定温度変化後の経過時間
+                setpoint_changed = (setpoint_change != 0).astype(int)
+                time_since_setpoint_change = setpoint_changed.groupby((setpoint_changed == 1).cumsum()).cumcount()
+                df_copy[f'time_since_setpoint_change_{zone}'] = time_since_setpoint_change
+                diff_features.append(f'time_since_setpoint_change_{zone}')
+
+    # 3. 外部環境の変化率特徴量
+    # 外気温の変化率
+    atmos_cols = [col for col in df.columns if 'atmospheric' in col.lower() and 'temperature' in col.lower()]
+    if atmos_cols:
+        atmos_col = atmos_cols[0]
+
+        # 外気温の変化率（複数時間窓）
+        for minutes_back in [5, 10, 15, 30]:
+            shift_steps = int(minutes_back * 60 / time_diff_seconds)
+            change_col = f'atmos_temp_change_{minutes_back}min'
+            df_copy[change_col] = df_copy[atmos_col] - df_copy[atmos_col].shift(shift_steps)
+            diff_features.append(change_col)
+
+        # 外気温変化の加速度
+        atmos_rate = df_copy[atmos_col].diff()
+        df_copy['atmos_temp_acceleration'] = atmos_rate.diff()
+        diff_features.append('atmos_temp_acceleration')
+
+    # 日射量の変化率
+    solar_cols = [col for col in df.columns if 'solar' in col.lower() and 'radiation' in col.lower()]
+    if solar_cols:
+        solar_col = solar_cols[0]
+
+        # 日射量の変化率
+        for minutes_back in [5, 10, 15]:
+            shift_steps = int(minutes_back * 60 / time_diff_seconds)
+            change_col = f'solar_change_{minutes_back}min'
+            df_copy[change_col] = df_copy[solar_col] - df_copy[solar_col].shift(shift_steps)
+            diff_features.append(change_col)
+
+    # 4. 時系列パターン特徴量
+    # 時間帯別の変化パターン
+    hour = df_copy.index.hour
+
+    # 朝の昇温期（6-10時）、昼の安定期（10-16時）、夕方の降温期（16-20時）、夜の安定期（20-6時）
+    df_copy['is_morning_heating'] = ((hour >= 6) & (hour < 10)).astype(int)
+    df_copy['is_daytime_stable'] = ((hour >= 10) & (hour < 16)).astype(int)
+    df_copy['is_evening_cooling'] = ((hour >= 16) & (hour < 20)).astype(int)
+    df_copy['is_night_stable'] = ((hour >= 20) | (hour < 6)).astype(int)
+
+    diff_features.extend(['is_morning_heating', 'is_daytime_stable', 'is_evening_cooling', 'is_night_stable'])
+
+    # 5. ゾーン間の相互作用特徴量（複数ゾーンがある場合）
+    if len(zone_nums) > 1:
+        for i, zone1 in enumerate(zone_nums):
+            for zone2 in zone_nums[i+1:]:
+                if f'sens_temp_{zone1}' in df.columns and f'sens_temp_{zone2}' in df.columns:
+                    # ゾーン間温度差
+                    inter_zone_diff = f'temp_diff_zone_{zone1}_to_{zone2}'
+                    df_copy[inter_zone_diff] = df_copy[f'sens_temp_{zone1}'] - df_copy[f'sens_temp_{zone2}']
+                    diff_features.append(inter_zone_diff)
+
+                    # ゾーン間温度差の変化率
+                    inter_zone_diff_rate = f'temp_diff_rate_zone_{zone1}_to_{zone2}'
+                    df_copy[inter_zone_diff_rate] = df_copy[inter_zone_diff].diff()
+                    diff_features.append(inter_zone_diff_rate)
+
+    print(f"✅ 差分予測特化特徴量を{len(diff_features)}個作成しました")
+
+    return df_copy, diff_features
+
+
+def create_difference_prediction_pipeline(df, zone_nums, horizons_minutes, time_diff_seconds,
+                                        smoothing_window=5, feature_selection_threshold='25%'):
+    """
+    差分予測専用の最適化された特徴量エンジニアリングパイプライン
+
+    差分予測に特化した特徴量を重点的に作成し、高精度な温度変化量予測を実現する。
+
+    Parameters:
+    -----------
+    df : DataFrame
+        時系列インデックスを持つデータフレーム
+    zone_nums : list
+        ゾーン番号のリスト
+    horizons_minutes : list
+        予測ホライゾン（分）のリスト
+    time_diff_seconds : int または float
+        データのサンプリング間隔（秒）
+    smoothing_window : int
+        平滑化ウィンドウサイズ
+    feature_selection_threshold : str
+        特徴量選択の閾値
+
+    Returns:
+    --------
+    DataFrame
+        処理済みデータフレーム
+    list
+        選択された特徴量のリスト
+    dict
+        特徴量情報
+    """
+    print("🔥 差分予測専用パイプライン開始...")
+
+    df_processed = df.copy()
+    all_features = []
+    feature_info = {
+        'difference_specific_features': [],
+        'smoothed_features': [],
+        'physics_features': [],
+        'future_features': [],
+        'selected_features': [],
+        'total_features_created': 0,
+        'total_features_selected': 0
+    }
+
+    # 1. 差分予測特化特徴量の作成（最優先）
+    df_processed, diff_features = create_difference_prediction_features(
+        df_processed, zone_nums, horizons_minutes, time_diff_seconds
+    )
+    all_features.extend(diff_features)
+    feature_info['difference_specific_features'] = diff_features
+    print(f"差分予測特化特徴量: {len(diff_features)}個")
+
+    # 2. 平滑化特徴量（差分予測でも重要）
+    df_processed, smoothed_features = apply_smoothing_to_sensors(
+        df_processed, zone_nums, window_size=smoothing_window
+    )
+    all_features.extend(smoothed_features)
+    feature_info['smoothed_features'] = smoothed_features
+    print(f"平滑化特徴量: {len(smoothed_features)}個")
+
+    # 3. サーモ状態特徴量（制御応答の理解に重要）
+    df_processed, thermo_features = create_thermo_state_features(df_processed, zone_nums)
+    all_features.extend(thermo_features)
+    feature_info['thermo_features'] = thermo_features
+    print(f"サーモ状態特徴量: {len(thermo_features)}個")
+
+    # 4. 物理モデルベース特徴量（基本的な物理法則）
+    df_processed, physics_features = create_physics_based_features(df_processed, zone_nums)
+    all_features.extend(physics_features)
+    feature_info['physics_features'] = physics_features
+    print(f"物理モデル特徴量: {len(physics_features)}個")
+
+    # 5. 重要な基本特徴量の選択
+    important_features_config = [
+        {'name': 'atmospheric　temperature', 'type': 'environmental'},
+        {'name': 'solar radiation', 'type': 'environmental'},
+        {'name': 'hour', 'type': 'temporal'},
+        {'name': 'hour_sin', 'type': 'temporal'},
+        {'name': 'hour_cos', 'type': 'temporal'}
+    ]
+
+    # ゾーン関連の基本特徴量
+    for zone in zone_nums:
+        zone_features = [
+            {'name': f'sens_temp_{zone}', 'type': 'sensor'},
+            {'name': f'sens_humid_{zone}', 'type': 'sensor'},
+            {'name': f'AC_valid_{zone}', 'type': 'control'},
+            {'name': f'AC_set_{zone}', 'type': 'control'},
+            {'name': f'AC_mode_{zone}', 'type': 'control'}
+        ]
+        important_features_config.extend(zone_features)
+
+    # 基本特徴量の追加
+    basic_features = []
+    for config in important_features_config:
+        if config['name'] in df_processed.columns:
+            basic_features.append(config['name'])
+
+    all_features.extend(basic_features)
+    feature_info['basic_features'] = basic_features
+    print(f"基本特徴量: {len(basic_features)}個")
+
+    # 6. 未来の制御・環境特徴量（差分予測でも有効）
+    df_processed, future_features = create_future_explanatory_features(
+        df_processed, important_features_config, horizons_minutes, time_diff_seconds
+    )
+    all_features.extend(future_features)
+    feature_info['future_features'] = future_features
+    print(f"未来特徴量: {len(future_features)}個")
+
+    # 7. 特徴量の重複除去
+    unique_features = list(dict.fromkeys(all_features))  # 順序を保持しつつ重複除去
+    available_features = [f for f in unique_features if f in df_processed.columns]
+
+    feature_info['total_features_created'] = len(available_features)
+    print(f"作成された特徴量総数: {len(available_features)}個")
+
+    # 8. 差分予測に特化した特徴量選択
+    # 差分予測特化特徴量は優先的に保持
+    priority_patterns = [
+        'temp_change_', 'temp_acceleration_', 'temp_direction_persistence_',
+        'ac_state_change_', 'ac_on_duration_', 'ac_off_duration_',
+        'setpoint_change_', 'time_since_setpoint_change_',
+        'atmos_temp_change_', 'atmos_temp_acceleration',
+        'solar_change_', 'is_morning_heating', 'is_daytime_stable',
+        'is_evening_cooling', 'is_night_stable',
+        'temp_diff_zone_', 'temp_diff_rate_zone_'
+    ]
+
+    # 差分予測用の目的変数を仮作成（特徴量選択用）
+    temp_target_cols = []
+    for zone in zone_nums:
+        for horizon in horizons_minutes:
+            target_col = f'temp_diff_{zone}_future_{horizon}'
+            if target_col in df_processed.columns:
+                temp_target_cols.append(target_col)
+                break  # 最初の有効な目的変数のみ使用
+        if temp_target_cols:
+            break
+
+    if temp_target_cols and len(available_features) > 50:
+        print(f"🎯 差分予測特化特徴量選択を実行中...")
+
+        # 有効なデータのみで特徴量選択
+        target_col = temp_target_cols[0]
+        valid_data = df_processed.dropna(subset=[target_col] + available_features[:50])  # 最初の50特徴量で試行
+
+        if len(valid_data) > 100:
+            X_temp = valid_data[available_features[:50]]
+            y_temp = valid_data[target_col]
+
+            try:
+                # 差分予測特化の特徴量選択
+                selected_features = select_important_features_enhanced(
+                    X_temp, X_temp, y_temp, available_features[:50],
+                    threshold=feature_selection_threshold,
+                    priority_patterns=priority_patterns
+                )
+
+                # 差分予測特化特徴量を追加で保持
+                for pattern in priority_patterns:
+                    pattern_features = [f for f in available_features if pattern in f and f not in selected_features]
+                    selected_features.extend(pattern_features[:3])  # 各パターンから最大3個
+
+                # 重複除去
+                selected_features = list(dict.fromkeys(selected_features))
+
+            except Exception as e:
+                print(f"特徴量選択エラー: {e}")
+                selected_features = available_features[:100]  # フォールバック
+        else:
+            selected_features = available_features
+    else:
+        selected_features = available_features
+
+    feature_info['selected_features'] = selected_features
+    feature_info['total_features_selected'] = len(selected_features)
+
+    print(f"✅ 差分予測専用パイプライン完了:")
+    print(f"  - 差分特化特徴量: {len(diff_features)}個")
+    print(f"  - 平滑化特徴量: {len(smoothed_features)}個")
+    print(f"  - 物理特徴量: {len(physics_features)}個")
+    print(f"  - 基本特徴量: {len(basic_features)}個")
+    print(f"  - 未来特徴量: {len(future_features)}個")
+    print(f"  - 最終選択特徴量: {len(selected_features)}個")
+
+    return df_processed, selected_features, feature_info
+
+
 """
 使用例:
 

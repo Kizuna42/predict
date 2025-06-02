@@ -9,13 +9,16 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import seaborn as sns
 import os
 from datetime import datetime
-from .font_config import setup_japanese_font
+from sklearn.metrics import r2_score
+from scipy import stats
+from .font_config import setup_japanese_font, get_font_properties
 
 # フォント設定を実行
-setup_japanese_font()
+japanese_font_prop = setup_japanese_font()
 
 # グラフ設定
 sns.set_theme(style="whitegrid", palette="husl")
@@ -30,6 +33,7 @@ plt.rcParams.update({
     'legend.fontsize': 11,
     'figure.titlesize': 16,
     'axes.unicode_minus': False,  # マイナス記号の文字化け対策
+    'figure.autolayout': True,    # レイアウト自動調整
 })
 
 
@@ -113,7 +117,7 @@ def plot_feature_importance(model, feature_names, zone, horizon, save_path=None,
     # グラフ保存
     if save and save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"特徴量重要度グラフ保存: {save_path}")
+        print(f"Feature importance plot saved: {save_path}")
 
     return fig
 
@@ -171,7 +175,7 @@ def plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
                                save_path=None, model_type="Prediction", save=True,
                                show_period_hours=24, detailed_mode=True, model=None, feature_names=None):
     """
-    超詳細時系列での実際値と予測値の比較プロット（分刻みスケール対応）
+    シンプルな時系列での実際値と予測値の比較プロット
 
     Parameters:
     -----------
@@ -194,7 +198,7 @@ def plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
     show_period_hours : int
         表示期間（時間）
     detailed_mode : bool
-        詳細モード（分刻み表示）
+        詳細モード（未使用、互換性のため残存）
     model : trained model, optional
         学習済みモデル
     feature_names : list, optional
@@ -205,10 +209,6 @@ def plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
     matplotlib.figure.Figure
         プロットのFigureオブジェクト
     """
-    import matplotlib.dates as mdates
-    from sklearn.metrics import r2_score
-    import math
-
     # データの前処理
     y_true = np.array(y_true)
     y_pred = np.array(y_pred)
@@ -223,7 +223,7 @@ def plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
     y_pred_valid = y_pred[valid_indices]
 
     if len(timestamps_valid) == 0:
-        print("警告: 有効なデータがありません")
+        print(f"Warning: Zone {zone} has no valid data")
         return None
 
     # 表示期間の設定
@@ -246,53 +246,18 @@ def plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
     # 正確な予測時間軸を作成（入力時刻 + 予測ホライゾン）
     prediction_timestamps = timestamps_period + pd.Timedelta(minutes=horizon)
 
-    # 詳細モードに基づくレイアウト設定
-    if detailed_mode:
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(20, 14))
-    else:
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 12))
+    # シンプルなプロット作成
+    fig, ax = plt.subplots(1, 1, figsize=(16, 8))
 
-    # 上段: 超詳細時系列比較
-    # 実測値（太い青線、マーカー付き）
-    ax1.plot(timestamps_period, y_true_period, 'b-', linewidth=3,
-            marker='o', markersize=4, markevery=max(1, len(timestamps_period)//50),
-            label='実測値', alpha=0.9, zorder=4)
+    # 実測値（青線、マーカー付き）
+    ax.plot(timestamps_period, y_true_period, 'b-', linewidth=2.5,
+            marker='o', markersize=3, markevery=max(1, len(timestamps_period)//100),
+            label='Actual', alpha=0.9)
 
-    # 予測値（正確な時間軸、赤い破線、マーカー付き）
-    ax1.plot(prediction_timestamps, y_pred_period, 'r--', linewidth=2.5,
-            marker='s', markersize=3, markevery=max(1, len(prediction_timestamps)//50),
-            label=f'予測値 (+{horizon}分後)', alpha=0.8, zorder=3)
-
-    # 時間軸の詳細設定（分刻み表示）
-    if show_period_hours <= 2:
-        # 2時間以下：5分間隔
-        ax1.xaxis.set_major_locator(mdates.MinuteLocator(interval=5))
-        ax1.xaxis.set_minor_locator(mdates.MinuteLocator(interval=1))
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-    elif show_period_hours <= 6:
-        # 6時間以下：15分間隔
-        ax1.xaxis.set_major_locator(mdates.MinuteLocator(interval=15))
-        ax1.xaxis.set_minor_locator(mdates.MinuteLocator(interval=5))
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\\n%H:%M'))
-    elif show_period_hours <= 12:
-        # 12時間以下：30分間隔
-        ax1.xaxis.set_major_locator(mdates.MinuteLocator(interval=30))
-        ax1.xaxis.set_minor_locator(mdates.MinuteLocator(interval=10))
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\\n%H:%M'))
-    elif show_period_hours <= 24:
-        # 24時間以下：1時間間隔
-        ax1.xaxis.set_major_locator(mdates.HourLocator(interval=1))
-        ax1.xaxis.set_minor_locator(mdates.MinuteLocator(interval=30))
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\\n%H:%M'))
-    else:
-        # 24時間超：2時間間隔
-        ax1.xaxis.set_major_locator(mdates.HourLocator(interval=2))
-        ax1.xaxis.set_minor_locator(mdates.HourLocator(interval=1))
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\\n%H:%M'))
-
-    ax1.tick_params(axis='x', rotation=45, labelsize=10)
-    ax1.tick_params(axis='both', which='major', labelsize=10)
-    ax1.tick_params(axis='both', which='minor', labelsize=8)
+    # 予測値（正確な時間軸、赤線、マーカー付き）
+    ax.plot(prediction_timestamps, y_pred_period, 'r-', linewidth=2.5,
+            marker='s', markersize=2, markevery=max(1, len(prediction_timestamps)//100),
+            label=f'Predicted (+{horizon}min)', alpha=0.9)
 
     # LAG依存度分析（モデルが提供された場合）
     lag_analysis = {'total_lag_percent': 0}
@@ -302,30 +267,56 @@ def plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
     # タイトルにLAG依存度情報を含める
     total_lag = lag_analysis['total_lag_percent']
     if total_lag > 30:
-        lag_info = f' [High LAG Dependency: {total_lag:.1f}%]'
+        lag_info = f' [High LAG: {total_lag:.1f}%]'
         title_color = 'darkred'
     elif total_lag > 15:
-        lag_info = f' [Medium LAG Dependency: {total_lag:.1f}%]'
+        lag_info = f' [Med LAG: {total_lag:.1f}%]'
         title_color = 'darkorange'
     elif total_lag > 0:
-        lag_info = f' [Low LAG Dependency: {total_lag:.1f}%]'
+        lag_info = f' [Low LAG: {total_lag:.1f}%]'
         title_color = 'darkgreen'
     else:
         lag_info = ''
         title_color = 'black'
 
-    title = (f'Zone {zone} - {model_type} vs Actual Temperature ({horizon}min Prediction)\\n'
-            f'Ultra-Detailed Timeseries ({show_period_hours}h Period){lag_info}')
+    title = f'Zone {zone} - {model_type} ({horizon}min){lag_info}'
+    ax.set_title(title, fontsize=16, fontweight='bold', color=title_color)
+    ax.set_ylabel('Temperature (°C)', fontsize=12, fontweight='bold')
+    ax.set_xlabel('DateTime', fontsize=12, fontweight='bold')
 
-    ax1.set_title(title, fontsize=16, fontweight='bold', color=title_color)
-    ax1.set_ylabel('Temperature (°C)', fontsize=12, fontweight='bold')
-    ax1.legend(fontsize=12, framealpha=0.9)
+    # 時間軸の設定
+    if show_period_hours <= 2:
+        ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=5))
+        ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=1))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+    elif show_period_hours <= 6:
+        ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=15))
+        ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=5))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\n%H:%M'))
+    elif show_period_hours <= 12:
+        ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=30))
+        ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=10))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\n%H:%M'))
+    elif show_period_hours <= 24:
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+        ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=30))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\n%H:%M'))
+    else:
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+        ax.xaxis.set_minor_locator(mdates.HourLocator(interval=1))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\n%H:%M'))
 
-    # 詳細グリッド
-    ax1.grid(True, linestyle='-', alpha=0.3, which='major')
-    ax1.grid(True, linestyle=':', alpha=0.2, which='minor')
+    ax.tick_params(axis='x', rotation=45, labelsize=10)
+    ax.tick_params(axis='both', which='major', labelsize=10)
+    ax.tick_params(axis='both', which='minor', labelsize=8)
 
-    # 下段: 予測誤差（時間軸を合わせるため、重複部分のみ使用）
+    # グリッド
+    ax.grid(True, linestyle='-', alpha=0.3, which='major')
+    ax.grid(True, linestyle=':', alpha=0.2, which='minor')
+
+    ax.legend(fontsize=12, framealpha=0.9)
+
+    # 統計情報（重複する時間範囲で計算）
     # 重複する時間範囲を計算
     actual_start = timestamps_period.min()
     actual_end = timestamps_period.max()
@@ -352,52 +343,29 @@ def plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
         prediction_timestamps_aligned = prediction_timestamps_aligned[:min_length]
         y_pred_aligned = y_pred_aligned[:min_length]
 
-        # 誤差計算（時間軸を合わせた後）
-        error = y_pred_aligned - y_true_aligned
-
-        # 誤差プロット
-        ax2.plot(timestamps_aligned, error, color='green', linewidth=1.5, alpha=0.7)
-        ax2.axhline(y=0, color='black', linestyle='--', alpha=0.5)
-        ax2.fill_between(timestamps_aligned, error, 0, alpha=0.3, color='green')
-
-        # 時間軸の設定を上段と同じにする
-        ax2.xaxis.set_major_locator(ax1.xaxis.get_major_locator())
-        ax2.xaxis.set_minor_locator(ax1.xaxis.get_minor_locator())
-        ax2.xaxis.set_major_formatter(ax1.xaxis.get_major_formatter())
-        ax2.tick_params(axis='x', rotation=45, labelsize=10)
-        ax2.tick_params(axis='both', which='major', labelsize=10)
-        ax2.tick_params(axis='both', which='minor', labelsize=8)
-
         # 詳細統計計算
-        mae = np.mean(np.abs(error))
-        rmse = np.sqrt(np.mean(error**2))
+        mae = np.mean(np.abs(y_pred_aligned - y_true_aligned))
+        rmse = np.sqrt(np.mean((y_pred_aligned - y_true_aligned)**2))
         r2 = r2_score(y_true_aligned, y_pred_aligned)
-        max_error = np.max(np.abs(error))
 
         # 統計情報をグラフに表示
-        stats_text = f'MAE: {mae:.3f}°C\\nRMSE: {rmse:.3f}°C\\nR²: {r2:.3f}\\nMax Error: {max_error:.3f}°C'
-        props = dict(boxstyle='round,pad=0.4', facecolor='lightblue', alpha=0.8)
-        ax1.text(0.02, 0.98, stats_text, transform=ax1.transAxes, fontsize=11,
-                verticalalignment='top', bbox=props, fontweight='bold')
+        stats_text = f'RMSE: {rmse:.3f}°C | MAE: {mae:.3f}°C | R²: {r2:.3f}'
+        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.8),
+                verticalalignment='top', fontsize=11, fontweight='bold')
 
         # データ点数情報
-        data_info = f'Data Points: {min_length}\\nTime Range: {show_period_hours}h'
-        ax1.text(0.98, 0.02, data_info, transform=ax1.transAxes,
+        data_info = f'{min_length} points | {show_period_hours}h'
+        ax.text(0.98, 0.02, data_info, transform=ax.transAxes,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
                 verticalalignment='bottom', horizontalalignment='right', fontsize=10)
-
-    ax2.set_title(f'Prediction Error (Predicted - Actual) - Aligned Timescale', fontsize=14)
-    ax2.set_xlabel('Time', fontsize=12, fontweight='bold')
-    ax2.set_ylabel('Error (°C)', fontsize=12, fontweight='bold')
-    ax2.grid(True, linestyle='-', alpha=0.3, which='major')
-    ax2.grid(True, linestyle=':', alpha=0.2, which='minor')
 
     plt.tight_layout()
 
     # グラフ保存
     if save and save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"超詳細時系列比較グラフ保存: {save_path}")
+        plt.savefig(save_path, dpi=200, bbox_inches='tight')
+        print(f"Simple timeseries comparison saved: {save_path}")
 
     return fig
 
@@ -473,7 +441,6 @@ def plot_scatter_analysis(y_true, y_pred, zone, horizon, save_path=None,
     ax3.grid(True, alpha=0.3)
 
     # Q-Qプロット
-    from scipy import stats
     stats.probplot(residuals, dist="norm", plot=ax4)
     ax4.set_title('Q-Q Plot (Normality Check)', fontsize=14, fontweight='bold')
     ax4.grid(True, alpha=0.3)
@@ -483,7 +450,7 @@ def plot_scatter_analysis(y_true, y_pred, zone, horizon, save_path=None,
     # グラフ保存
     if save and save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"散布図分析グラフ保存: {save_path}")
+        print(f"Scatter analysis plot saved: {save_path}")
 
     return fig
 
@@ -537,7 +504,7 @@ def plot_performance_summary(metrics_dict, zone, horizon, save_path=None, save=T
     # グラフ保存
     if save and save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"性能サマリーグラフ保存: {save_path}")
+        print(f"Performance summary plot saved: {save_path}")
 
     return fig
 
@@ -630,7 +597,7 @@ def plot_comparison_analysis(direct_metrics, diff_metrics, zone, horizon,
     # グラフ保存
     if save and save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"比較分析グラフ保存: {save_path}")
+        print(f"Comparison analysis plot saved: {save_path}")
 
     return fig
 
@@ -696,14 +663,453 @@ def create_comprehensive_visualization_report(model, feature_names, y_true, y_pr
     plot_performance_summary(metrics, zone, horizon, summary_path)
     created_files['summary'] = summary_path
 
-    print(f"\n📊 {model_type}モデルの包括的可視化レポート作成完了:")
+    print(f"\n📊 {model_type} model comprehensive minute analysis report completed:")
     for viz_type, path in created_files.items():
         print(f"  - {viz_type}: {path}")
 
     return created_files
 
 
-# 公開API
+def create_correct_prediction_timestamps(timestamps, horizon_minutes):
+    """
+    正しい予測タイムスタンプを作成
+
+    Parameters:
+    -----------
+    timestamps : pd.DatetimeIndex
+        入力データのタイムスタンプ
+    horizon_minutes : int
+        予測ホライゾン（分）
+
+    Returns:
+    --------
+    pd.DatetimeIndex
+        正しい予測タイムスタンプ
+    """
+    return timestamps + pd.Timedelta(minutes=horizon_minutes)
+
+
+def plot_corrected_time_series(timestamps, actual, predicted, zone, horizon, save_dir=None,
+                              points=100, save=True, validate_timing=True):
+    """
+    シンプルな時系列プロット（正しい時間軸のみ）
+
+    Parameters:
+    -----------
+    timestamps : array-like
+        入力データのタイムスタンプ
+    actual : Series
+        実測値（目的変数）
+    predicted : array-like
+        予測値
+    zone : int
+        ゾーン番号
+    horizon : int
+        予測ホライゾン（分）
+    save_dir : str, optional
+        グラフ保存ディレクトリ
+    points : int, optional
+        最大表示データ点数
+    save : bool, optional
+        グラフを保存するか
+    validate_timing : bool, optional
+        時間軸の検証を行うか（未使用、互換性のため残存）
+
+    Returns:
+    --------
+    matplotlib.figure.Figure
+        プロットのFigureオブジェクト
+    """
+    # NaN値をフィルタ
+    valid_indices = ~(pd.isna(actual) | pd.isna(predicted))
+    timestamps_valid = timestamps[valid_indices]
+    actual_valid = actual[valid_indices]
+    predicted_valid = predicted[valid_indices]
+
+    if len(timestamps_valid) == 0:
+        print(f"Warning: Zone {zone} has no valid data")
+        return None
+
+    # 予測値用の正しいタイムスタンプを作成
+    prediction_timestamps = create_correct_prediction_timestamps(timestamps_valid, horizon)
+
+    # データのサンプリング
+    sample_size = min(len(timestamps_valid), points)
+    if len(timestamps_valid) > sample_size:
+        indices = np.linspace(0, len(timestamps_valid) - 1, sample_size, dtype=int)
+        timestamps_sample = timestamps_valid[indices]
+        actual_sample = actual_valid[indices]
+        predicted_sample = predicted_valid[indices]
+        prediction_timestamps_sample = prediction_timestamps[indices]
+    else:
+        timestamps_sample = timestamps_valid
+        actual_sample = actual_valid
+        predicted_sample = predicted_valid
+        prediction_timestamps_sample = prediction_timestamps
+
+    # シンプルなプロット作成（1つのプロットのみ）
+    fig, ax = plt.subplots(1, 1, figsize=(16, 8))
+
+    # 時系列の長さを一致させるため、重複する時間範囲のみを使用
+    actual_start = timestamps_sample.min()
+    actual_end = timestamps_sample.max()
+    pred_start = prediction_timestamps_sample.min()
+    pred_end = prediction_timestamps_sample.max()
+
+    # 重複する時間範囲を計算
+    overlap_start = max(actual_start, pred_start)
+    overlap_end = min(actual_end, pred_end)
+
+    # 重複範囲内のデータのみを抽出
+    actual_mask = (timestamps_sample >= overlap_start) & (timestamps_sample <= overlap_end)
+    pred_mask = (prediction_timestamps_sample >= overlap_start) & (prediction_timestamps_sample <= overlap_end)
+
+    timestamps_aligned = timestamps_sample[actual_mask]
+    actual_aligned = actual_sample[actual_mask]
+    prediction_timestamps_aligned = prediction_timestamps_sample[pred_mask]
+    predicted_aligned = predicted_sample[pred_mask]
+
+    # 長さを確認して調整
+    min_length = min(len(timestamps_aligned), len(prediction_timestamps_aligned))
+    if min_length > 0:
+        timestamps_aligned = timestamps_aligned[:min_length]
+        actual_aligned = actual_aligned[:min_length]
+        prediction_timestamps_aligned = prediction_timestamps_aligned[:min_length]
+        predicted_aligned = predicted_aligned[:min_length]
+
+    # 正しい時間軸での表示のみ
+    ax.plot(timestamps_aligned, actual_aligned, 'b-', linewidth=2.5, label='Actual', alpha=0.9)
+    ax.plot(prediction_timestamps_aligned, predicted_aligned, 'r--', linewidth=2.5,
+            label=f'Predicted (+{horizon}min)', alpha=0.9)
+
+    ax.set_title(f'Zone {zone} - Temperature Prediction ({horizon}min ahead)',
+                 fontsize=16, fontweight='bold')
+    ax.set_xlabel('DateTime', fontsize=12)
+    ax.set_ylabel('Temperature (°C)', fontsize=12)
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=12)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\n%H:%M'))
+    ax.tick_params(axis='x', rotation=45)
+
+    plt.tight_layout()
+
+    # 保存
+    if save and save_dir:
+        output_path = os.path.join(save_dir, f'simple_timeseries_zone_{zone}_horizon_{horizon}.png')
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        print(f"Simple timeseries plot saved: {output_path}")
+
+    return fig
+
+
+def plot_ultra_detailed_minute_analysis(y_true, y_pred, timestamps, zone, horizon,
+                                       save_dir="Output/visualizations", save=True,
+                                       model=None, feature_names=None):
+    """
+    超高解像度分刻み時系列分析（複数の時間スケール）
+
+    Parameters:
+    -----------
+    y_true : array-like
+        実際値
+    y_pred : array-like
+        予測値
+    timestamps : array-like
+        時刻データ
+    zone : int
+        ゾーン番号
+    horizon : int
+        予測ホライゾン（分）
+    save_dir : str
+        保存ディレクトリ
+    save : bool
+        保存するか
+    model : trained model, optional
+        学習済みモデル
+    feature_names : list, optional
+        特徴量名のリスト
+
+    Returns:
+    --------
+    list
+        生成されたFigureオブジェクトのリスト
+    """
+    figures = []
+
+    # 複数の詳細時間スケールを定義
+    time_scales = [
+        {'name': 'ultra_minute', 'hours': 2, 'description': '2h Detailed (Minute-scale)'},
+        {'name': 'detailed_minute', 'hours': 6, 'description': '6h Detailed (Minute-scale)'},
+        {'name': 'extended_minute', 'hours': 12, 'description': '12h Detailed (Minute-scale)'},
+        {'name': 'daily_minute', 'hours': 24, 'description': '24h Detailed (Minute-scale)'},
+        {'name': 'multi_day_minute', 'hours': 48, 'description': '48h Detailed (Minute-scale)'}
+    ]
+
+    for scale_config in time_scales:
+        print(f"📊 Generating {scale_config['description']} visualization...")
+
+        fig = _create_minute_scale_visualization(
+            y_true, y_pred, timestamps, zone, horizon, scale_config,
+            save_dir, save, model, feature_names
+        )
+
+        if fig is not None:
+            figures.append(fig)
+
+    return figures
+
+
+def _create_minute_scale_visualization(y_true, y_pred, timestamps, zone, horizon,
+                                     scale_config, save_dir, save, model, feature_names):
+    """
+    シンプルな分刻みスケール可視化
+    """
+    # データの前処理
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    timestamps = pd.to_datetime(timestamps)
+
+    # 有効データのフィルタリング
+    valid_indices = ~(pd.isna(y_true) | pd.isna(y_pred) |
+                     np.isinf(y_true) | np.isinf(y_pred))
+
+    timestamps_valid = timestamps[valid_indices]
+    y_true_valid = y_true[valid_indices]
+    y_pred_valid = y_pred[valid_indices]
+
+    if len(timestamps_valid) == 0:
+        print(f"Warning: Zone {zone} has no valid data")
+        return None
+
+    # 指定時間範囲のデータを抽出
+    hours = scale_config['hours']
+    if len(timestamps_valid) > 0:
+        end_time = timestamps_valid[-1]
+        start_time = end_time - pd.Timedelta(hours=hours)
+
+        period_mask = (timestamps_valid >= start_time) & (timestamps_valid <= end_time)
+        timestamps_period = timestamps_valid[period_mask]
+        y_true_period = y_true_valid[period_mask]
+        y_pred_period = y_pred_valid[period_mask]
+
+        if len(timestamps_period) == 0:
+            # データが少ない場合は利用可能な全データを使用
+            max_points = min(len(timestamps_valid), hours * 60)
+            timestamps_period = timestamps_valid[-max_points:]
+            y_true_period = y_true_valid[-max_points:]
+            y_pred_period = y_pred_valid[-max_points:]
+
+    # 正しい時間軸での予測値タイムスタンプ
+    prediction_timestamps = create_correct_prediction_timestamps(timestamps_period, horizon)
+
+    # シンプルなプロット作成（1つのプロットのみ）
+    fig, ax = plt.subplots(1, 1, figsize=(20, 10))
+
+    # 時系列の長さを一致させるため、重複する時間範囲のみを使用
+    try:
+        # 実測値と予測値の時間範囲の重複部分を計算
+        actual_start = timestamps_period.min()
+        actual_end = timestamps_period.max()
+        pred_start = prediction_timestamps.min()
+        pred_end = prediction_timestamps.max()
+
+        # 重複する時間範囲を計算
+        overlap_start = max(actual_start, pred_start)
+        overlap_end = min(actual_end, pred_end)
+
+        # 重複範囲内のデータのみを抽出
+        actual_mask = (timestamps_period >= overlap_start) & (timestamps_period <= overlap_end)
+        pred_mask = (prediction_timestamps >= overlap_start) & (prediction_timestamps <= overlap_end)
+
+        timestamps_aligned = timestamps_period[actual_mask]
+        y_true_aligned = y_true_period[actual_mask]
+        prediction_timestamps_aligned = prediction_timestamps[pred_mask]
+        y_pred_aligned = y_pred_period[pred_mask]
+
+        # 長さを確認して調整
+        min_length = min(len(timestamps_aligned), len(prediction_timestamps_aligned))
+        if min_length > 0:
+            timestamps_aligned = timestamps_aligned[:min_length]
+            y_true_aligned = y_true_aligned[:min_length]
+            prediction_timestamps_aligned = prediction_timestamps_aligned[:min_length]
+            y_pred_aligned = y_pred_aligned[:min_length]
+
+            # シンプルなプロット
+            ax.plot(timestamps_aligned, y_true_aligned, 'b-', linewidth=3,
+                    marker='o', markersize=3, markevery=max(1, len(timestamps_aligned)//100),
+                    label='Actual', alpha=0.9)
+
+            ax.plot(prediction_timestamps_aligned, y_pred_aligned, 'r-', linewidth=2.5,
+                    marker='s', markersize=2, markevery=max(1, len(prediction_timestamps_aligned)//100),
+                    label=f'Predicted (+{horizon}min)', alpha=0.9)
+
+            # LAG依存度分析（モデルが提供された場合）
+            lag_analysis = {'total_lag_percent': 0}
+            if model is not None and feature_names is not None:
+                lag_analysis = analyze_lag_dependency(model, feature_names)
+
+            # 詳細統計計算
+            mae = np.mean(np.abs(y_true_aligned - y_pred_aligned))
+            rmse = np.sqrt(np.mean((y_true_aligned - y_pred_aligned)**2))
+            r2 = r2_score(y_true_aligned, y_pred_aligned)
+
+            # タイトル
+            total_lag = lag_analysis['total_lag_percent']
+            if total_lag > 30:
+                lag_info = f' [High LAG: {total_lag:.1f}%]'
+                title_color = 'darkred'
+            elif total_lag > 15:
+                lag_info = f' [Med LAG: {total_lag:.1f}%]'
+                title_color = 'darkorange'
+            elif total_lag > 0:
+                lag_info = f' [Low LAG: {total_lag:.1f}%]'
+                title_color = 'darkgreen'
+            else:
+                lag_info = ''
+                title_color = 'black'
+
+            title = f'Zone {zone} - {scale_config["description"]} ({horizon}min){lag_info}'
+            ax.set_title(title, fontsize=18, fontweight='bold', color=title_color)
+            ax.set_ylabel('Temperature (°C)', fontsize=14, fontweight='bold')
+            ax.set_xlabel('DateTime', fontsize=14, fontweight='bold')
+
+            # 時間軸の詳細設定（分刻み表示）
+            if hours <= 2:
+                ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=5))
+                ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=1))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+            elif hours <= 6:
+                ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=15))
+                ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=5))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\n%H:%M'))
+            elif hours <= 12:
+                ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=30))
+                ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=10))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\n%H:%M'))
+            elif hours <= 24:
+                ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+                ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=30))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\n%H:%M'))
+            else:
+                ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+                ax.xaxis.set_minor_locator(mdates.HourLocator(interval=1))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\n%H:%M'))
+
+            ax.tick_params(axis='x', rotation=45, labelsize=12)
+            ax.tick_params(axis='both', which='major', labelsize=12)
+            ax.tick_params(axis='both', which='minor', labelsize=10)
+
+            # グリッド
+            ax.grid(True, linestyle='-', alpha=0.3, which='major')
+            ax.grid(True, linestyle=':', alpha=0.2, which='minor')
+
+            # 凡例
+            ax.legend(fontsize=14, framealpha=0.9, loc='upper right')
+
+            # 統計情報ボックス（シンプル化）
+            stats_text = f'RMSE: {rmse:.3f}°C | MAE: {mae:.3f}°C | R²: {r2:.3f}'
+            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.8),
+                    verticalalignment='top', fontsize=12, fontweight='bold')
+
+            # データ情報（シンプル化）
+            data_info = f'{min_length} points | {hours}h range'
+            ax.text(0.98, 0.02, data_info, transform=ax.transAxes,
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
+                    verticalalignment='bottom', horizontalalignment='right', fontsize=11)
+
+    except Exception as e:
+        print(f"Zone {zone} plotting error: {e}")
+        return None
+
+    plt.tight_layout()
+
+    # 保存
+    if save and save_dir:
+        output_path = os.path.join(save_dir,
+                                  f'minute_{scale_config["name"]}_zone_{zone}_horizon_{horizon}_{scale_config["hours"]}h.png')
+        plt.savefig(output_path, dpi=200, bbox_inches='tight')
+        print(f"Minute visualization saved: {output_path}")
+
+    return fig
+
+
+def create_comprehensive_minute_analysis_report(model, feature_names, y_true, y_pred,
+                                              timestamps, metrics, zone, horizon,
+                                              model_type="Prediction", save_dir="Output/visualizations"):
+    """
+    包括的な分刻み可視化レポートを作成
+
+    Parameters:
+    -----------
+    model : trained model
+        学習済みモデル
+    feature_names : list
+        特徴量名
+    y_true : array-like
+        実際値
+    y_pred : array-like
+        予測値
+    timestamps : array-like
+        時刻データ
+    metrics : dict
+        評価指標
+    zone : int
+        ゾーン番号
+    horizon : int
+        予測ホライゾン
+    model_type : str
+        モデルタイプ
+    save_dir : str
+        保存ディレクトリ
+
+    Returns:
+    --------
+    dict
+        作成された可視化ファイルのパス
+    """
+    os.makedirs(save_dir, exist_ok=True)
+
+    created_files = {}
+
+    # 1. 既存の包括的可視化レポート
+    standard_report = create_comprehensive_visualization_report(
+        model, feature_names, y_true, y_pred, timestamps, metrics,
+        zone, horizon, model_type, save_dir
+    )
+    created_files.update(standard_report)
+
+    # 2. シンプルな時間軸プロット
+    simple_path = os.path.join(save_dir, f"{model_type.lower()}_simple_timeseries_zone_{zone}_horizon_{horizon}.png")
+    simple_fig = plot_corrected_time_series(
+        timestamps, y_true, y_pred, zone, horizon, save_dir, save=True
+    )
+    if simple_fig is not None:
+        created_files['simple_timeseries'] = simple_path
+
+    # 3. 分刻み時系列分析
+    minute_figures = plot_ultra_detailed_minute_analysis(
+        y_true, y_pred, timestamps, zone, horizon, save_dir, save=True,
+        model=model, feature_names=feature_names
+    )
+
+    # 分刻み可視化のパスを記録
+    time_scales = ['ultra_minute', 'detailed_minute', 'extended_minute', 'daily_minute', 'multi_day_minute']
+    hours_list = [2, 6, 12, 24, 48]
+
+    for i, (scale_name, hours) in enumerate(zip(time_scales, hours_list)):
+        if i < len(minute_figures) and minute_figures[i] is not None:
+            path = os.path.join(save_dir, f'minute_{scale_name}_zone_{zone}_horizon_{horizon}_{hours}h.png')
+            created_files[f'minute_{scale_name}'] = path
+
+    print(f"\n📊 {model_type} model comprehensive minute analysis report completed:")
+    for viz_type, path in created_files.items():
+        print(f"  - {viz_type}: {path}")
+
+    return created_files
+
+
+# 公開APIに新しい関数を追加
 __all__ = [
     'plot_feature_importance',
     'plot_time_series_comparison',
@@ -711,5 +1117,9 @@ __all__ = [
     'plot_performance_summary',
     'plot_comparison_analysis',
     'create_comprehensive_visualization_report',
-    'analyze_lag_dependency'
+    'analyze_lag_dependency',
+    'create_correct_prediction_timestamps',
+    'plot_corrected_time_series',
+    'plot_ultra_detailed_minute_analysis',
+    'create_comprehensive_minute_analysis_report'
 ]

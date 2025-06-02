@@ -29,12 +29,14 @@ from src.data.preprocessing import (
     create_future_targets,
     create_temperature_difference_targets,
     prepare_time_features,
-    get_time_based_train_test_split
+    get_time_based_train_test_split,
+    filter_high_value_targets
 )
 
 # 特徴量エンジニアリング関数のインポート
 from src.data.feature_engineering import (
     create_optimized_features_pipeline,
+    create_difference_prediction_pipeline
 )
 
 # モデル訓練関数のインポート
@@ -63,7 +65,8 @@ from src.utils.basic_plots import (
     plot_scatter_analysis,
     plot_performance_summary,
     plot_comparison_analysis,
-    create_comprehensive_visualization_report
+    create_comprehensive_visualization_report,
+    create_comprehensive_minute_analysis_report
 )
 
 
@@ -142,8 +145,17 @@ def run_direct_prediction(df, zones, horizons, save_models=True, create_visualiz
                 print(f"警告: 有効データが不足 ({len(valid_data)}行)")
                 continue
 
+            # 高値目的変数フィルタリング（75パーセンタイル以上）
+            filtered_data, filter_info = filter_high_value_targets(
+                valid_data, [target_col], percentile=75
+            )
+
+            if len(filtered_data) < 50:
+                print(f"警告: フィルタ後のデータが不足 ({len(filtered_data)}行) - フィルタリングをスキップ")
+                filtered_data = valid_data
+
             # 時系列分割
-            train_df, test_df = get_time_based_train_test_split(valid_data, test_size=TEST_SIZE)
+            train_df, test_df = get_time_based_train_test_split(filtered_data, test_size=TEST_SIZE)
 
             X_train = train_df[feature_cols]
             y_train = train_df[target_col]
@@ -196,7 +208,21 @@ def run_direct_prediction(df, zones, horizons, save_models=True, create_visualiz
                         save_dir=str(viz_dir)
                     )
 
-                    print(f"直接予測の包括的可視化を作成: ゾーン{zone}, {horizon}分後")
+                    # 追加: 分刻み詳細可視化レポートの作成
+                    minute_visualizations = create_comprehensive_minute_analysis_report(
+                        model=model,
+                        feature_names=feature_cols,
+                        y_true=y_test,
+                        y_pred=y_pred,
+                        timestamps=test_timestamps,
+                        metrics=metrics,
+                        zone=zone,
+                        horizon=horizon,
+                        model_type="Direct",
+                        save_dir=str(viz_dir)
+                    )
+
+                    print(f"Direct prediction comprehensive visualization + detailed minute analysis created: Zone{zone}, {horizon}min ahead")
 
                 except Exception as e:
                     print(f"可視化エラー: {e}")
@@ -238,8 +264,8 @@ def run_difference_prediction(df, zones, horizons, save_models=True, create_visu
     df_with_diff_targets = create_temperature_difference_targets(df, zones, horizons,
                                                                pd.Timedelta(seconds=time_diff_seconds))
 
-    # 特徴量エンジニアリング
-    df_processed, selected_features, feature_info = create_optimized_features_pipeline(
+    # 差分予測専用特徴量エンジニアリング
+    df_processed, selected_features, feature_info = create_difference_prediction_pipeline(
         df=df_with_diff_targets,
         zone_nums=zones,
         horizons_minutes=horizons,
@@ -267,8 +293,29 @@ def run_difference_prediction(df, zones, horizons, save_models=True, create_visu
                 print(f"警告: 有効データが不足 ({len(valid_data)}行)")
                 continue
 
+            # 高値目的変数フィルタリング（差分の絶対値で25パーセンタイル以上）
+            # 最適化結果により25%ileが最良の性能を示したため採用
+            abs_diff_col = f'abs_temp_diff_{zone}_future_{horizon}'
+            valid_data[abs_diff_col] = valid_data[diff_target_col].abs()
+
+            # 最適化された25パーセンタイルフィルタリングで高精度化
+            filtered_data, filter_info = filter_high_value_targets(
+                valid_data, [abs_diff_col], percentile=25
+            )
+
+            # フィルタ後データが少なすぎる場合は段階的にフィルタを緩める
+            if len(filtered_data) < 100:
+                print(f"⚠️  25%ileフィルタ後のデータが不足 ({len(filtered_data)}行) - 20%ileで再試行")
+                filtered_data, filter_info = filter_high_value_targets(
+                    valid_data, [abs_diff_col], percentile=20
+                )
+
+                if len(filtered_data) < 30:
+                    print(f"⚠️  20%ileフィルタ後のデータが不足 ({len(filtered_data)}行) - フィルタリングをスキップ")
+                    filtered_data = valid_data
+
             # 時系列分割
-            train_df, test_df = get_time_based_train_test_split(valid_data, test_size=TEST_SIZE)
+            train_df, test_df = get_time_based_train_test_split(filtered_data, test_size=TEST_SIZE)
 
             X_train = train_df[feature_cols]
             y_train_diff = train_df[diff_target_col]
@@ -327,8 +374,22 @@ def run_difference_prediction(df, zones, horizons, save_models=True, create_visu
                         save_dir=str(viz_dir)
                     )
 
+                    # 追加: 分刻み詳細可視化レポートの作成（差分予測用）
+                    minute_visualizations = create_comprehensive_minute_analysis_report(
+                        model=diff_model,
+                        feature_names=feature_cols,
+                        y_true=y_test_diff,
+                        y_pred=y_pred_diff,
+                        timestamps=test_timestamps,
+                        metrics=diff_metrics,
+                        zone=zone,
+                        horizon=horizon,
+                        model_type="Difference",
+                        save_dir=str(viz_dir)
+                    )
+
                     # 復元温度の時系列比較も作成
-                    restored_timeseries_path = viz_dir / f"difference_restored_timeseries_zone_{zone}_horizon_{horizon}.png"
+                    restored_timeseries_path = viz_dir / f"difference_restored_simple_timeseries_zone_{zone}_horizon_{horizon}.png"
                     future_target_col = f'sens_temp_{zone}_future_{horizon}'
                     if future_target_col in test_df.columns:
                         plot_time_series_comparison(
@@ -338,7 +399,21 @@ def run_difference_prediction(df, zones, horizons, save_models=True, create_visu
                             show_period_hours=24, detailed_mode=True
                         )
 
-                    print(f"差分予測の包括的可視化を作成: ゾーン{zone}, {horizon}分後")
+                    # 復元温度の分刻み詳細可視化も作成
+                    restored_minute_visualizations = create_comprehensive_minute_analysis_report(
+                        model=diff_model,
+                        feature_names=feature_cols,
+                        y_true=test_df[future_target_col],
+                        y_pred=y_restored,
+                        timestamps=test_timestamps,
+                        metrics=diff_metrics,
+                        zone=zone,
+                        horizon=horizon,
+                        model_type="Difference_Restored",
+                        save_dir=str(viz_dir)
+                    )
+
+                    print(f"Difference prediction comprehensive visualization + detailed minute analysis created: Zone{zone}, {horizon}min ahead")
 
                 except Exception as e:
                     print(f"可視化エラー: {e}")
