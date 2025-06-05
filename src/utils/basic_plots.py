@@ -658,10 +658,10 @@ def create_comprehensive_visualization_report(model, feature_names, y_true, y_pr
     plot_scatter_analysis(y_true, y_pred, zone, horizon, scatter_path, model_type=model_type)
     created_files['scatter'] = scatter_path
 
-    # 4. 性能サマリー
-    summary_path = os.path.join(save_dir, f"{model_type.lower()}_performance_summary_zone_{zone}_horizon_{horizon}.png")
-    plot_performance_summary(metrics, zone, horizon, summary_path)
-    created_files['summary'] = summary_path
+    # 4. 性能サマリー（削除）
+    # summary_path = os.path.join(save_dir, f"{model_type.lower()}_performance_summary_zone_{zone}_horizon_{horizon}.png")
+    # plot_performance_summary(metrics, zone, horizon, summary_path)
+    # created_files['summary'] = summary_path
 
     print(f"\n📊 {model_type} model comprehensive minute analysis report completed:")
     for viz_type, path in created_files.items():

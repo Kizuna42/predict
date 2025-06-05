@@ -293,19 +293,19 @@ def run_difference_prediction(df, zones, horizons, save_models=True, create_visu
                 print(f"警告: 有効データが不足 ({len(valid_data)}行)")
                 continue
 
-            # 高値目的変数フィルタリング（差分の絶対値で25パーセンタイル以上）
-            # 最適化結果により25%ileが最良の性能を示したため採用
+            # 高値目的変数フィルタリング（差分の絶対値で5パーセンタイル以上）
             abs_diff_col = f'abs_temp_diff_{zone}_future_{horizon}'
             valid_data[abs_diff_col] = valid_data[diff_target_col].abs()
 
-            # 最適化された25パーセンタイルフィルタリングで高精度化
+            # 高値フィルタリング（上司要求：目的変数の値が大きいデータのみに絞って学習）
+            # 極端フィルタリング最適化の結果：5%ileが最適と判明
             filtered_data, filter_info = filter_high_value_targets(
-                valid_data, [abs_diff_col], percentile=25
+                valid_data, [abs_diff_col], percentile=5
             )
 
             # フィルタ後データが少なすぎる場合は段階的にフィルタを緩める
             if len(filtered_data) < 100:
-                print(f"⚠️  25%ileフィルタ後のデータが不足 ({len(filtered_data)}行) - 20%ileで再試行")
+                print(f"⚠️  5%ileフィルタ後のデータが不足 ({len(filtered_data)}行) - 20%ileで再試行")
                 filtered_data, filter_info = filter_high_value_targets(
                     valid_data, [abs_diff_col], percentile=20
                 )

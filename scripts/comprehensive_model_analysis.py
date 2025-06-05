@@ -450,11 +450,12 @@ def create_comprehensive_analysis_report(zone=1, horizon=15):
     feature_cols = [col for col in selected_features if col in df_processed.columns]
     valid_data = df_processed.dropna(subset=[diff_target_col] + feature_cols)
 
-    # 高値フィルタリング（25%ile）
+    # 高値フィルタリング（極端フィルタリング最適化結果：5%ileが最適）
+    # 上司要求：「目的変数の値が大きいデータのみに絞って学習」
     abs_diff_col = f'abs_temp_diff_{zone}_future_{horizon}'
     valid_data[abs_diff_col] = valid_data[diff_target_col].abs()
     filtered_data, filter_info = filter_high_value_targets(
-        valid_data, [abs_diff_col], percentile=25
+        valid_data, [abs_diff_col], percentile=5
     )
 
     # 時系列分割
