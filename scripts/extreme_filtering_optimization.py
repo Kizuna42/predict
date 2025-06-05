@@ -443,3 +443,4 @@ if __name__ == "__main__":
         print("\\n✅ 極端フィルタリング最適化が正常に完了しました")
     else:
         print(f"\\n❌ 最適化でエラーが発生: {results['error']}")
+ 

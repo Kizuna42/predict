@@ -562,3 +562,4 @@ if __name__ == "__main__":
     print_analysis_summary(results)
 
     print("\\n✅ 包括的分析が正常に完了しました")
+ 
