@@ -214,7 +214,7 @@ def plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
 
     # 表示期間の設定
     end_time = timestamps[-1]
-    start_time = end_time - pd.Timedelta(hours=show_period_hours)
+        start_time = end_time - pd.Timedelta(hours=show_period_hours)
     period_mask = (timestamps >= start_time) & (timestamps <= end_time)
     
     if not period_mask.any():
@@ -307,7 +307,7 @@ def plot_scatter_analysis(y_true, y_pred, zone, horizon, save_path=None,
     ax1.scatter(y_true, y_pred, alpha=0.6, s=20, color='blue')
     min_val, max_val = min(y_true.min(), y_pred.min()), max(y_true.max(), y_pred.max())
     ax1.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect Prediction')
-    
+
     ax1.set_xlabel('Actual Temperature (°C)', fontsize=12)
     ax1.set_ylabel('Predicted Temperature (°C)', fontsize=12)
     ax1.set_title(f'Zone {zone} - {model_type} Accuracy Scatter Plot', fontsize=14, fontweight='bold')
@@ -499,7 +499,7 @@ def _create_minute_scale_visualization(y_true, y_pred, timestamps, zone, horizon
     # 指定時間範囲のデータを抽出
     hours = scale_config['hours']
     end_time = timestamps[-1]
-    start_time = end_time - pd.Timedelta(hours=hours)
+        start_time = end_time - pd.Timedelta(hours=hours)
     period_mask = (timestamps >= start_time) & (timestamps <= end_time)
     
     if not period_mask.any():

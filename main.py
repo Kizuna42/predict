@@ -55,7 +55,9 @@ from src.models.evaluation import (
     print_difference_metrics,
     restore_temperature_from_difference,
     compare_difference_vs_direct_prediction,
-    print_prediction_comparison
+    print_prediction_comparison,
+    test_physical_validity,
+    test_difference_prediction_behavior
 )
 
 # 可視化関数のインポート
@@ -174,6 +176,17 @@ def run_direct_prediction(df, zones, horizons, save_models=True, create_visualiz
             print_metrics(metrics, zone, horizon)
 
             results['metrics'][f'direct_zone_{zone}_horizon_{horizon}'] = metrics
+
+            # 物理的妥当性テスト
+            try:
+                validity_results = test_physical_validity(
+                    model, feature_cols, test_df, zone, horizon,
+                    is_difference_model=False
+                )
+                if validity_results:
+                    results[f'direct_validity_zone_{zone}_horizon_{horizon}'] = validity_results
+            except Exception as e:
+                print(f"物理的妥当性テストエラー: {e}")
 
             # モデル保存
             if save_models:
@@ -337,6 +350,25 @@ def run_difference_prediction(df, zones, horizons, save_models=True, create_visu
             print_difference_metrics(diff_metrics, zone, horizon)
 
             results['metrics'][f'difference_zone_{zone}_horizon_{horizon}'] = diff_metrics
+
+            # 物理的妥当性テスト
+            try:
+                current_temp_col = f'sens_temp_{zone}'
+                validity_results = test_physical_validity(
+                    diff_model, feature_cols, test_df, zone, horizon,
+                    is_difference_model=True, current_temp_col=current_temp_col
+                )
+                if validity_results:
+                    results[f'diff_validity_zone_{zone}_horizon_{horizon}'] = validity_results
+
+                # 差分予測挙動テスト
+                behavior_results = test_difference_prediction_behavior(
+                    diff_model, feature_cols, test_df, zone, horizon, current_temp_col
+                )
+                if behavior_results:
+                    results[f'diff_behavior_zone_{zone}_horizon_{horizon}'] = behavior_results
+            except Exception as e:
+                print(f"物理的妥当性テストエラー: {e}")
 
             # モデル保存
             if save_models:
@@ -512,6 +544,36 @@ def run_comparison_analysis(df, zones, horizons):
                 direct_metrics, diff_metrics, current_temps_test, y_test_direct
             )
             print_prediction_comparison(comparison, zone, horizon)
+
+            # 物理的妥当性テスト（比較分析）
+            print("\n🔬 物理的妥当性テスト比較...")
+            try:
+                # 直接予測の物理的妥当性
+                direct_validity = test_physical_validity(
+                    direct_model, feature_cols, test_df, zone, horizon,
+                    is_difference_model=False
+                )
+                
+                # 差分予測の物理的妥当性
+                current_temp_col = f'sens_temp_{zone}'
+                diff_validity = test_physical_validity(
+                    diff_model, feature_cols, test_df, zone, horizon,
+                    is_difference_model=True, current_temp_col=current_temp_col
+                )
+
+                # 差分予測挙動分析
+                behavior_analysis = test_difference_prediction_behavior(
+                    diff_model, feature_cols, test_df, zone, horizon, current_temp_col
+                )
+
+                # 妥当性スコア比較
+                if direct_validity and diff_validity:
+                    print(f"\n📋 物理的妥当性スコア比較:")
+                    print(f"  直接予測: {direct_validity.get('validity_score', 0):.1%}")
+                    print(f"  差分予測: {diff_validity.get('validity_score', 0):.1%}")
+
+            except Exception as e:
+                print(f"物理的妥当性テスト比較エラー: {e}")
 
             # 比較可視化の作成
             try:

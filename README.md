@@ -42,6 +42,22 @@ python main.py --mode both
 python main.py --test --zones 1 2 --horizons 15 30
 ```
 
+### 物理的妥当性テスト
+
+上司の要求「サーモ ON/OFF で予測温度が意図した方向に変化するか」を検証：
+
+```bash
+# 物理的妥当性テスト実行
+python test_physical_validity.py
+```
+
+このテストでは以下を確認します：
+
+- **サーモ ON vs OFF**: 制御による予測温度変化
+- **冷房 vs 暖房**: モード変更による予測温度変化
+- **設定温度変更**: 設定値変更による予測温度変化
+- **差分予測の挙動**: 上昇中でもマイナス予測が出る理由の分析
+
 ### Python コードから実行
 
 ```python

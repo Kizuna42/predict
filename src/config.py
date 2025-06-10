@@ -3,6 +3,9 @@
 
 import os
 
+# データファイルパス
+DATA_PATH = 'AllDayData.csv'
+
 OUTPUT_DIR = 'Output'
 MODELS_DIR = os.path.join(OUTPUT_DIR, 'models')
 

@@ -306,7 +306,7 @@ def test_physical_validity(model, feature_names, test_data, zone, horizon,
             current_temps = sample_data[current_temp_col]
             pred_cool_temp = current_temps + pred_cool
             pred_heat_temp = current_temps + pred_heat
-        else:
+    else:
             pred_cool_temp = pred_cool
             pred_heat_temp = pred_heat
         
@@ -491,5 +491,210 @@ def test_difference_prediction_behavior(model, feature_names, test_data, zone, h
         print(f"    ✅ 上昇中でも負の予測: これは制御により温度上昇が抑制される予測として妥当")
     if cases['falling_but_positive_pred'] > 0:
         print(f"    ✅ 下降中でも正の予測: これは制御により温度低下が抑制される予測として妥当")
+    
+    return results
+
+
+def test_physical_validity(model, feature_names, test_data, zone, horizon, 
+                          is_difference_model=False, current_temp_col=None):
+    """
+    物理的妥当性テスト - サーモ制御による予測温度変化の確認
+
+    Parameters:
+    -----------
+    model : trained model
+        学習済みモデル
+    feature_names : list
+        特徴量名のリスト
+    test_data : DataFrame
+        テストデータ
+    zone : int
+        対象ゾーン
+    horizon : int
+        予測ホライゾン
+    is_difference_model : bool
+        差分予測モデルかどうか
+    current_temp_col : str
+        現在温度の列名（差分モデルの場合）
+
+    Returns:
+    --------
+    dict
+        物理的妥当性テストの結果
+    """
+    print(f"\n🔬 Zone {zone} - 物理的妥当性テスト実行中...")
+    
+    # テスト用のサンプルデータを準備（最新の100サンプル）
+    sample_data = test_data.tail(100).copy()
+    
+    if len(sample_data) == 0:
+        print("警告: テストデータが不足しています")
+        return None
+    
+    # AC制御関連の特徴量を特定
+    ac_valid_col = f'AC_valid_{zone}'
+    ac_mode_col = f'AC_mode_{zone}'
+    ac_set_col = f'AC_set_{zone}'
+    
+    # 必要な列が存在するかチェック
+    required_cols = [col for col in [ac_valid_col, ac_mode_col, ac_set_col] 
+                    if col in feature_names and col in sample_data.columns]
+    
+    if not required_cols:
+        print(f"警告: AC制御関連の特徴量が見つかりません（Zone {zone}）")
+        return None
+    
+    # ベースライン予測（現在の設定）
+    baseline_features = sample_data[feature_names]
+    baseline_pred = model.predict(baseline_features)
+    
+    results = {
+        'baseline_pred_mean': np.mean(baseline_pred),
+        'baseline_pred_std': np.std(baseline_pred),
+        'tests': []
+    }
+    
+    # テスト1: サーモON vs OFF
+    if ac_valid_col in required_cols:
+        print(f"  🔥 テスト1: サーモON vs OFF")
+        
+        # サーモON設定
+        test_data_on = sample_data.copy()
+        test_data_on[ac_valid_col] = 1  # サーモON
+        pred_on = model.predict(test_data_on[feature_names])
+        
+        # サーモOFF設定
+        test_data_off = sample_data.copy()
+        test_data_off[ac_valid_col] = 0  # サーモOFF
+        pred_off = model.predict(test_data_off[feature_names])
+        
+        # 差分予測の場合は温度に復元
+        if is_difference_model and current_temp_col:
+            current_temps = sample_data[current_temp_col]
+            pred_on_temp = current_temps + pred_on
+            pred_off_temp = current_temps + pred_off
+            baseline_temp = current_temps + baseline_pred
+        else:
+            pred_on_temp = pred_on
+            pred_off_temp = pred_off
+            baseline_temp = baseline_pred
+        
+        # 結果分析
+        temp_diff_on_vs_baseline = np.mean(pred_on_temp - baseline_temp)
+        temp_diff_off_vs_baseline = np.mean(pred_off_temp - baseline_temp)
+        temp_diff_on_vs_off = np.mean(pred_on_temp - pred_off_temp)
+        
+        test1_result = {
+            'test_name': 'サーモON vs OFF',
+            'on_vs_baseline': temp_diff_on_vs_baseline,
+            'off_vs_baseline': temp_diff_off_vs_baseline,
+            'on_vs_off': temp_diff_on_vs_off,
+            'physical_validity': temp_diff_on_vs_off > 0  # ONの方が高い温度予測なら物理的に妥当
+        }
+        
+        results['tests'].append(test1_result)
+        
+        print(f"    サーモON vs ベースライン: {temp_diff_on_vs_baseline:+.3f}°C")
+        print(f"    サーモOFF vs ベースライン: {temp_diff_off_vs_baseline:+.3f}°C")
+        print(f"    サーモON vs OFF: {temp_diff_on_vs_off:+.3f}°C")
+        print(f"    物理的妥当性: {'✅ OK' if test1_result['physical_validity'] else '❌ NG'}")
+    
+    # テスト2: モード変更（冷房 vs 暖房）
+    if ac_mode_col in required_cols:
+        print(f"  ❄️ テスト2: 冷房 vs 暖房モード")
+        
+        # 冷房モード
+        test_data_cool = sample_data.copy()
+        test_data_cool[ac_mode_col] = 0  # 冷房
+        if ac_valid_col in test_data_cool.columns:
+            test_data_cool[ac_valid_col] = 1  # サーモON
+        pred_cool = model.predict(test_data_cool[feature_names])
+        
+        # 暖房モード
+        test_data_heat = sample_data.copy()
+        test_data_heat[ac_mode_col] = 1  # 暖房
+        if ac_valid_col in test_data_heat.columns:
+            test_data_heat[ac_valid_col] = 1  # サーモON
+        pred_heat = model.predict(test_data_heat[feature_names])
+        
+        # 差分予測の場合は温度に復元
+        if is_difference_model and current_temp_col:
+            current_temps = sample_data[current_temp_col]
+            pred_cool_temp = current_temps + pred_cool
+            pred_heat_temp = current_temps + pred_heat
+        else:
+            pred_cool_temp = pred_cool
+            pred_heat_temp = pred_heat
+        
+        # 結果分析
+        temp_diff_heat_vs_cool = np.mean(pred_heat_temp - pred_cool_temp)
+        
+        test2_result = {
+            'test_name': '暖房 vs 冷房',
+            'heat_vs_cool': temp_diff_heat_vs_cool,
+            'physical_validity': temp_diff_heat_vs_cool > 0  # 暖房の方が高い温度予測なら物理的に妥当
+        }
+        
+        results['tests'].append(test2_result)
+        
+        print(f"    暖房 vs 冷房: {temp_diff_heat_vs_cool:+.3f}°C")
+        print(f"    物理的妥当性: {'✅ OK' if test2_result['physical_validity'] else '❌ NG'}")
+    
+    # テスト3: 設定温度変更
+    if ac_set_col in required_cols:
+        print(f"  🌡️ テスト3: 設定温度変更")
+        
+        # 現在の平均設定温度
+        current_setpoint = sample_data[ac_set_col].mean()
+        
+        # 高設定温度（+2°C）
+        test_data_high = sample_data.copy()
+        test_data_high[ac_set_col] = current_setpoint + 2
+        if ac_valid_col in test_data_high.columns:
+            test_data_high[ac_valid_col] = 1  # サーモON
+        pred_high = model.predict(test_data_high[feature_names])
+        
+        # 低設定温度（-2°C）
+        test_data_low = sample_data.copy()
+        test_data_low[ac_set_col] = current_setpoint - 2
+        if ac_valid_col in test_data_low.columns:
+            test_data_low[ac_valid_col] = 1  # サーモON
+        pred_low = model.predict(test_data_low[feature_names])
+        
+        # 差分予測の場合は温度に復元
+        if is_difference_model and current_temp_col:
+            current_temps = sample_data[current_temp_col]
+            pred_high_temp = current_temps + pred_high
+            pred_low_temp = current_temps + pred_low
+        else:
+            pred_high_temp = pred_high
+            pred_low_temp = pred_low
+        
+        # 結果分析
+        temp_diff_high_vs_low = np.mean(pred_high_temp - pred_low_temp)
+        
+        test3_result = {
+            'test_name': '設定温度 高 vs 低',
+            'high_vs_low': temp_diff_high_vs_low,
+            'physical_validity': temp_diff_high_vs_low > 0  # 高設定の方が高い温度予測なら物理的に妥当
+        }
+        
+        results['tests'].append(test3_result)
+        
+        print(f"    設定温度 高(+2°C) vs 低(-2°C): {temp_diff_high_vs_low:+.3f}°C")
+        print(f"    物理的妥当性: {'✅ OK' if test3_result['physical_validity'] else '❌ NG'}")
+    
+    # 総合評価
+    valid_tests = [test for test in results['tests'] if 'physical_validity' in test]
+    if valid_tests:
+        overall_validity = all(test['physical_validity'] for test in valid_tests)
+        validity_score = sum(test['physical_validity'] for test in valid_tests) / len(valid_tests)
+        
+        results['overall_validity'] = overall_validity
+        results['validity_score'] = validity_score
+        
+        print(f"\n📋 総合評価:")
+        print(f"    物理的妥当性スコア: {validity_score:.1%}")
+        print(f"    総合判定: {'✅ 物理的に妥当' if overall_validity else '⚠️ 要確認'}")
     
     return results
