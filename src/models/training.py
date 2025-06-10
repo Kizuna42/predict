@@ -12,6 +12,7 @@ import lightgbm as lgb
 import pickle
 import os
 from src.config import LGBM_PARAMS, MODELS_DIR
+from src.utils.data_validation import check_and_remove_duplicate_columns
 
 
 class PhysicsConstrainedLGBM:
@@ -210,8 +211,7 @@ class PhysicsConstrainedLGBM:
 def train_physics_guided_model(X_train, y_train, params=None):
     """
     物理法則を考慮したモデルのトレーニング
-    修正: 特徴量の重複をチェックし、重複を排除
-
+    
     Parameters:
     -----------
     X_train : DataFrame
@@ -228,21 +228,8 @@ def train_physics_guided_model(X_train, y_train, params=None):
     """
     print("物理法則ガイド付きモデルをトレーニング中...")
 
-    # 列名の重複チェック
-    if len(X_train.columns) != len(set(X_train.columns)):
-        print("警告: トレーニングデータの列名に重複があります。重複を排除します。")
-        # 重複を排除したデータフレームを作成
-        unique_cols = []
-        seen_cols = set()
-        for col in X_train.columns:
-            if col not in seen_cols:
-                unique_cols.append(col)
-                seen_cols.add(col)
-
-        # 重複を排除した特徴量のみを使用
-        duplicate_count = len(X_train.columns) - len(unique_cols)
-        X_train = X_train[unique_cols]
-        print(f"{duplicate_count}個の重複特徴量を排除しました。残り特徴量数: {len(unique_cols)}")
+    # 重複チェックと除去（統一ユーティリティ使用）
+    X_train, _, _ = check_and_remove_duplicate_columns(X_train)
 
     # パラメータが指定されていない場合は、デフォルト値を使用
     if params is None:
@@ -422,19 +409,8 @@ def train_temperature_difference_model(X_train, y_train, params=None):
     """
     print("🔥 高精度温度差分予測モデルをトレーニング中...")
 
-    # 列名の重複チェック
-    if len(X_train.columns) != len(set(X_train.columns)):
-        print("警告: トレーニングデータの列名に重複があります。重複を排除します。")
-        unique_cols = []
-        seen_cols = set()
-        for col in X_train.columns:
-            if col not in seen_cols:
-                unique_cols.append(col)
-                seen_cols.add(col)
-
-        duplicate_count = len(X_train.columns) - len(unique_cols)
-        X_train = X_train[unique_cols]
-        print(f"{duplicate_count}個の重複特徴量を排除しました。残り特徴量数: {len(unique_cols)}")
+    # 重複チェックと除去（統一ユーティリティ使用）
+    X_train, _, _ = check_and_remove_duplicate_columns(X_train)
 
     # 高精度差分予測に最適化されたパラメータ
     if params is None:
@@ -638,17 +614,8 @@ def train_physics_constrained_difference_model(X_train, y_train, params=None):
     """
     print("🚀 物理制約付き差分予測モデル学習開始...")
     
-    # 列名の重複チェック
-    if len(X_train.columns) != len(set(X_train.columns)):
-        print("警告: 重複特徴量を排除します")
-        unique_cols = []
-        seen_cols = set()
-        for col in X_train.columns:
-            if col not in seen_cols:
-                unique_cols.append(col)
-                seen_cols.add(col)
-        X_train = X_train[unique_cols]
-        print(f"重複排除後の特徴量数: {len(unique_cols)}")
+    # 重複チェックと除去（統一ユーティリティ使用）
+    X_train, _, _ = check_and_remove_duplicate_columns(X_train)
     
     # デフォルトパラメータ
     if params is None:

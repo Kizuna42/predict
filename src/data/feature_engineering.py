@@ -12,6 +12,7 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.feature_selection import SelectFromModel
 import lightgbm as lgb
 from scipy import ndimage
+from src.utils.data_validation import check_and_remove_duplicate_columns
 
 
 def create_physics_based_features(df, zone_nums):
@@ -196,7 +197,7 @@ def create_thermo_state_features(df, zone_nums):
 
 def select_important_features(X_train, y_train, X_test, feature_names, threshold='25%'):
     """
-    LightGBMを使った特徴量選択により、重要な特徴量のみを選択（オリジナル版）
+    LightGBMを使った特徴量選択により、重要な特徴量のみを選択（統一版）
 
     Parameters:
     -----------
@@ -216,29 +217,9 @@ def select_important_features(X_train, y_train, X_test, feature_names, threshold
     X_train_selected, X_test_selected : 選択された特徴量のみを含むデータフレーム
     selected_features : 選択された特徴量名のリスト
     """
-    # 特徴量名に重複がないか確認し、重複があれば警告して排除
-    unique_feature_names = []
-    seen_names = set()
-    duplicates = []
-
-    for feature in feature_names:
-        if feature in seen_names:
-            duplicates.append(feature)
-        else:
-            unique_feature_names.append(feature)
-            seen_names.add(feature)
-
-    if duplicates:
-        print(f"警告: 重複する特徴量名を検出し排除しました: {len(duplicates)}個")
-        feature_names = unique_feature_names
-
-    # 列名に重複がないか確認（データフレームの列名も確認）
-    if len(X_train.columns) != len(set(X_train.columns)):
-        print("警告: データフレームの列名に重複があります。重複を排除します。")
-        unique_cols = list(dict.fromkeys(X_train.columns))
-        X_train = X_train[unique_cols]
-        X_test = X_test[unique_cols]
-        feature_names = [f for f in feature_names if f in unique_cols]
+    # 重複チェックと除去（統一ユーティリティ使用）
+    X_train, feature_names, _ = check_and_remove_duplicate_columns(X_train, feature_names)
+    X_test, _, _ = check_and_remove_duplicate_columns(X_test, feature_names)
 
     # 特徴量選択用の軽量なモデル
     selection_model = lgb.LGBMRegressor(
