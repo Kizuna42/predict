@@ -1188,41 +1188,4 @@ def create_difference_prediction_pipeline(df, zone_nums, horizons_minutes, time_
     return df_processed, selected_features, feature_info
 
 
-"""
-使用例:
-
-# 基本的な使用法
-df_processed, selected_features, feature_info = create_optimized_features_pipeline(
-    df=data_df,
-    zone_nums=[1, 2, 3],
-    horizons_minutes=[10, 15],
-    time_diff_seconds=300,  # 5分間隔
-    is_prediction_mode=False,  # 学習時
-    smoothing_window=5,
-    feature_selection_threshold='25%'
-)
-
-# 特徴量選択の実行（改良版を使用）
-X_train_selected, X_test_selected, final_features = select_important_features_enhanced(
-    X_train=X_train[selected_features],
-    y_train=y_train,
-    X_test=X_test[selected_features],
-    feature_names=selected_features,
-    threshold='25%'
-)
-
-# 処理内容:
-# 1. 温度・湿度のノイズ対策（移動平均）
-# 2. サーモ状態の作成（AC_setとAC_tempを統合）
-# 3. 未来の制御パラメータ・環境データの作成
-# 4. 重要特徴量の優先選択
-# 5. AC_setやAC_tempの除外（サーモ状態に一本化）
-
-重要特徴量パターン:
-- 外気温: atmospheric.*temperature
-- 日射量: solar.*radiation
-- サーモ状態: thermo_state
-- 発停・モード: AC_valid, AC_mode
-- 平滑化データ: *_smoothed
-- 未来情報: *_future_*min
-"""
+# 特徴量エンジニアリングパイプライン完了

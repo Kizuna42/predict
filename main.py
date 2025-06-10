@@ -63,7 +63,6 @@ from src.utils.basic_plots import (
     plot_feature_importance,
     plot_time_series_comparison,
     plot_scatter_analysis,
-    plot_performance_summary,
     plot_comparison_analysis,
     create_comprehensive_visualization_report,
     create_comprehensive_minute_analysis_report
@@ -389,14 +388,14 @@ def run_difference_prediction(df, zones, horizons, save_models=True, create_visu
                     )
 
                     # 復元温度の時系列比較も作成
-                    restored_timeseries_path = viz_dir / f"difference_restored_simple_timeseries_zone_{zone}_horizon_{horizon}.png"
+                    restored_timeseries_path = viz_dir / f"difference_restored_timeseries_zone_{zone}_horizon_{horizon}.png"
                     future_target_col = f'sens_temp_{zone}_future_{horizon}'
                     if future_target_col in test_df.columns:
                         plot_time_series_comparison(
                             test_df[future_target_col], y_restored, test_timestamps,
                             zone, horizon, str(restored_timeseries_path),
                             model_type="Difference (Restored)", save=True,
-                            show_period_hours=24, detailed_mode=True
+                            show_period_hours=24
                         )
 
                     # 復元温度の分刻み詳細可視化も作成
