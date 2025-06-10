@@ -115,9 +115,11 @@ class PhysicsConstrainedLGBM:
                     adjusted_pred[cool_mask] -= self.control_sensitivity * 0.15
                     
                 elif 'AC_set' in feat:
-                    # 設定温度の影響を強化
-                    set_effect = (feat_values - feat_values.mean()) * self.control_sensitivity * 0.05
-                    adjusted_pred += set_effect
+                    # 設定温度の影響を強化 - 絶対値ベースで制御効果を適用
+                    # 高設定温度は正の調整、低設定温度は負の調整
+                    baseline_temp = 24.0  # 基準温度（°C）
+                    temp_adjustment = (feat_values - baseline_temp) * self.control_sensitivity * 0.15
+                    adjusted_pred += temp_adjustment
         
         return adjusted_pred
     
@@ -466,7 +468,7 @@ def train_temperature_difference_model(X_train, y_train, params=None):
             
             # PhysicsConstrainedLGBMを使用
             physics_model = PhysicsConstrainedLGBM(
-                control_sensitivity=0.7,  # 制御変数への感度を高めに設定
+                control_sensitivity=0.9,  # 制御変数への感度を0.7→0.9に強化
                 physics_penalty=0.3,
                 adaptive_weight_start=0.1,
                 adaptive_weight_end=0.7,
@@ -660,7 +662,7 @@ def train_physics_constrained_difference_model(X_train, y_train, params=None):
     try:
         # 物理制約モデルの初期化
         physics_model = PhysicsConstrainedLGBM(
-            control_sensitivity=0.7,
+            control_sensitivity=0.9,
             physics_penalty=0.3,
             adaptive_weight_start=0.1,
             adaptive_weight_end=0.7,

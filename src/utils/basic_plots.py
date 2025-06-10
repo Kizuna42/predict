@@ -214,7 +214,7 @@ def plot_time_series_comparison(y_true, y_pred, timestamps, zone, horizon,
 
     # 表示期間の設定
     end_time = timestamps[-1]
-        start_time = end_time - pd.Timedelta(hours=show_period_hours)
+    start_time = end_time - pd.Timedelta(hours=show_period_hours)
     period_mask = (timestamps >= start_time) & (timestamps <= end_time)
     
     if not period_mask.any():
@@ -499,7 +499,7 @@ def _create_minute_scale_visualization(y_true, y_pred, timestamps, zone, horizon
     # 指定時間範囲のデータを抽出
     hours = scale_config['hours']
     end_time = timestamps[-1]
-        start_time = end_time - pd.Timedelta(hours=hours)
+    start_time = end_time - pd.Timedelta(hours=hours)
     period_mask = (timestamps >= start_time) & (timestamps <= end_time)
     
     if not period_mask.any():
