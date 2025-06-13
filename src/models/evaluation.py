@@ -306,7 +306,7 @@ def test_physical_validity(model, feature_names, test_data, zone, horizon,
             current_temps = sample_data[current_temp_col]
             pred_cool_temp = current_temps + pred_cool
             pred_heat_temp = current_temps + pred_heat
-        else:
+    else:
             pred_cool_temp = pred_cool
             pred_heat_temp = pred_heat
         

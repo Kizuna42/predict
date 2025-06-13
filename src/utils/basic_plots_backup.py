@@ -22,11 +22,12 @@ import warnings
 # === フォント設定（完全修正版） ===
 
 def setup_japanese_font_system():
-    """日本語フォント設定（絵文字非使用版）"""
+    """完全な日本語・絵文字・記号対応フォント設定（最終版）"""
     system = platform.system()
     
-    # システム別フォント候補（日本語のみ）
+    # システム別フォント候補（絵文字・記号対応を優先）
     if system == "Darwin":  # macOS
+        # 日本語フォント候補
         japanese_fonts = [
             "Hiragino Sans",
             "Hiragino Kaku Gothic Pro", 
@@ -35,6 +36,13 @@ def setup_japanese_font_system():
             "BIZ UDGothic",
             "Apple SD Gothic Neo"
         ]
+        # 絵文字・記号対応フォント
+        emoji_fonts = [
+            "Apple Color Emoji",
+            "Apple Symbols", 
+            "Symbol"
+        ]
+        # フォールバックフォント
         fallback_fonts = [
             "Arial Unicode MS",
             "Lucida Grande",
@@ -48,6 +56,10 @@ def setup_japanese_font_system():
             "Meiryo UI",
             "MS UI Gothic"
         ]
+        emoji_fonts = [
+            "Segoe UI Emoji",
+            "Segoe UI Symbol"
+        ]
         fallback_fonts = [
             "Arial Unicode MS",
             "Arial",
@@ -56,8 +68,13 @@ def setup_japanese_font_system():
     else:  # Linux
         japanese_fonts = [
             "Noto Sans CJK JP",
+            "Noto Color Emoji",
             "TakaoGothic",
             "IPAexGothic"
+        ]
+        emoji_fonts = [
+            "Noto Color Emoji",
+            "Symbola"
         ]
         fallback_fonts = [
             "DejaVu Sans",
@@ -66,32 +83,44 @@ def setup_japanese_font_system():
     
     # 利用可能フォント検索
     available_fonts = set([f.name for f in fm.fontManager.ttflist])
-    print(f"[INFO] フォント検索開始 - 日本語候補: {len(japanese_fonts)}")
+    print(f"🔍 フォント検索開始...")
+    print(f"   日本語候補: {len(japanese_fonts)}, 絵文字候補: {len(emoji_fonts)}")
     
     # 日本語フォント選択
     selected_japanese_font = None
     for font_name in japanese_fonts:
         if font_name in available_fonts:
             selected_japanese_font = font_name
-            print(f"[OK] 日本語フォント発見: {selected_japanese_font}")
+            print(f"✅ 日本語フォント発見: {selected_japanese_font}")
             break
         else:
-            print(f"[SKIP] {font_name} は利用不可")
+            print(f"❌ {font_name} は利用不可")
+    
+    # 絵文字フォント選択
+    selected_emoji_font = None
+    for font_name in emoji_fonts:
+        if font_name in available_fonts:
+            selected_emoji_font = font_name
+            print(f"✅ 絵文字フォント発見: {selected_emoji_font}")
+            break
     
     # フォントリスト構築
     font_list = []
     if selected_japanese_font:
         font_list.append(selected_japanese_font)
+    if selected_emoji_font and selected_emoji_font != selected_japanese_font:
+        font_list.append(selected_emoji_font)
     font_list.extend(fallback_fonts)
     
     # 重複削除
     font_list = list(dict.fromkeys(font_list))
-    print(f"[OK] フォントリスト構築完了: {font_list[:3]}...")
+    
+    print(f"✅ 最終フォントリスト: {font_list[:3]}...")
     
     # matplotlib完全初期化とフォント設定
     plt.rcdefaults()
     
-    # シンプル設定（絵文字非対応）
+    # 包括的matplotlib設定
 plt.rcParams.update({
         'font.family': ['sans-serif'],
         'font.sans-serif': font_list,
@@ -111,28 +140,43 @@ plt.rcParams.update({
         'savefig.facecolor': 'white'
     })
     
-    # 日本語テスト（絵文字非使用）
+    # 包括的表示テスト
     try:
         fig, ax = plt.subplots(figsize=(4, 3))
-        ax.text(0.5, 0.5, '日本語テスト: 温度予測システム', ha='center', va='center', 
+        
+        # 日本語テスト
+        ax.text(0.5, 0.8, '日本語テスト: 温度予測', ha='center', va='center', 
                fontsize=12, fontfamily=font_list[0])
-        ax.set_title('フォント表示テスト', fontsize=14, fontfamily=font_list[0])
+        
+        # 絵文字・記号テスト
+        emoji_text = '🌡️📊🎯✅❌⚠️°℃'
+        ax.text(0.5, 0.5, f'絵文字テスト: {emoji_text}', ha='center', va='center', 
+               fontsize=12, fontfamily=font_list[0])
+        
+        # 数学記号テスト
+        math_text = 'R² MAE RMSE ±'
+        ax.text(0.5, 0.2, f'記号テスト: {math_text}', ha='center', va='center', 
+               fontsize=12, fontfamily=font_list[0])
+        
+        ax.set_title('🎨 フォント包括テスト', fontsize=14, fontfamily=font_list[0])
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.axis('off')
+        
         plt.close(fig)
-        print("[OK] 日本語表示テスト成功")
+        print("✅ 包括的表示テスト成功")
+        
     except Exception as e:
-        print(f"[WARNING] 表示テスト失敗: {e}")
+        print(f"⚠️ 表示テスト失敗: {e}")
     
-    # フォントキャッシュクリア
+    # フォントキャッシュクリア（必要に応じて）
     try:
         fm._get_fontconfig_fonts.cache_clear()
     except:
         pass
         
     primary_font = font_list[0] if font_list else 'DejaVu Sans'
-    print(f"[COMPLETE] プライマリフォント設定: {primary_font}")
+    print(f"🎨 プライマリフォント設定完了: {primary_font}")
     
     return primary_font, font_list
 
@@ -145,64 +189,146 @@ sns.set_theme(style="whitegrid", palette="husl")
 
 # ===== ユーティリティ関数 =====
 
-def _safe_text_render(ax, x, y, text, fontsize=12, ha='center', va='center', **kwargs):
-    """安全なテキスト描画（絵文字・記号対応）"""
+def _ascii_safe_convert(text):
+    """絵文字・特殊文字・日本語をASCII安全文字に変換"""
+    
+    # 日本語→英語変換マップ
+    japanese_map = {
+        '復元温度モデル信頼性ダッシュボード': 'Restored Temperature Model Reliability Dashboard',
+        'モデル信頼性ダッシュボード': 'Model Reliability Dashboard', 
+        '総合スコア': 'Overall Score',
+        '優秀': 'Excellent',
+        '良好': 'Good', 
+        '要改善': 'Needs Improvement',
+        '詳細メトリクス': 'Detailed Metrics',
+        'データ点数': 'Data Points',
+        '依存度': 'Dependency',
+        '最新24時間の予測性能': 'Latest 24h Prediction Performance',
+        '信頼区間': 'Confidence Interval',
+        '誤差分布': 'Error Distribution',
+        '重要特徴量': 'Important Features',
+        '特徴量重要度': 'Feature Importance',
+        '取得不可': 'Unavailable',
+        '情報なし': 'No Info',
+        '平均誤差': 'Mean Error',
+        '予測誤差': 'Prediction Error',
+        '頻度': 'Frequency',
+        '重要度': 'Importance',
+        '温度': 'Temperature',
+        '実測値': 'Actual',
+        '予測値': 'Predicted',
+        '現在時刻': 'Current Time',
+        '未来予測領域': 'Future Prediction Area',
+        '日時': 'DateTime',
+        '特徴量重要度分析': 'Feature Importance Analysis',
+        '時系列比較': 'Time Series Comparison',
+        '分予測': 'min Prediction',
+        '精度分析': 'Accuracy Analysis',
+        '予測精度散布図': 'Prediction Accuracy Scatter',
+        '残差分析': 'Residual Analysis',
+        '残差分布': 'Residual Distribution',
+        '正規性確認': 'Normality Check',
+        '実測温度': 'Actual Temperature',
+        '予測温度': 'Predicted Temperature',
+        '残差': 'Residual',
+        '完全予測線': 'Perfect Prediction Line',
+        '平均': 'Mean'
+    }
+    
+    # 絵文字→ASCII変換マップ
+    emoji_map = {
+        '🌡️': '[TEMP]',
+        '📊': '[CHART]', 
+        '🎯': '[TARGET]',
+        '✅': '[OK]',
+        '❌': '[NG]',
+        '⚠️': '[WARN]',
+        '🟢': '[GREEN]',
+        '🟡': '[YELLOW]', 
+        '🔴': '[RED]',
+        '📈': '[TREND]',
+        '🔝': '[TOP]',
+        '°': 'deg',
+        '℃': 'C',
+        '²': '2',
+        '±': '+/-'
+    }
+    
+    result = str(text)
+    
+    # 日本語変換
+    for japanese, english in japanese_map.items():
+        result = result.replace(japanese, english)
+    
+    # 絵文字変換
+    for emoji, replacement in emoji_map.items():
+        result = result.replace(emoji, replacement)
+    
+    # 残った非ASCII文字を除去
     try:
-        # 主要フォントで描画試行
-        return ax.text(x, y, text, fontsize=fontsize, ha=ha, va=va, 
-                      fontfamily=JAPANESE_FONT, **kwargs)
+        result = result.encode('ascii', 'ignore').decode('ascii')
     except:
-        try:
-            # フォールバック1: システムフォント
-            return ax.text(x, y, text, fontsize=fontsize, ha=ha, va=va, **kwargs)
-        except:
-            # フォールバック2: ASCII安全バージョン
-            safe_text = text.encode('ascii', 'ignore').decode('ascii')
-            return ax.text(x, y, safe_text, fontsize=fontsize, ha=ha, va=va, **kwargs)
+        pass
+    
+    return result
+
+def _safe_text_render(ax, x, y, text, fontsize=12, ha='center', va='center', **kwargs):
+    """安全なテキスト描画（完全ASCII対応）"""
+    try:
+        # ASCII安全変換
+        safe_text = _ascii_safe_convert(str(text))
+        return ax.text(x, y, safe_text, fontsize=fontsize, ha=ha, va=va, 
+                      fontfamily='Arial', **kwargs)
+    except Exception as e:
+        # 最終フォールバック
+        fallback_text = str(text).encode('ascii', 'ignore').decode('ascii')
+        return ax.text(x, y, fallback_text, fontsize=fontsize, ha=ha, va=va, **kwargs)
 
 def _safe_title_render(ax, title, fontsize=14, **kwargs):
-    """安全なタイトル描画（絵文字・記号対応）"""
+    """安全なタイトル描画（完全ASCII対応）"""
     try:
-        return ax.set_title(title, fontsize=fontsize, fontfamily=JAPANESE_FONT, **kwargs)
-    except:
-        try:
-            return ax.set_title(title, fontsize=fontsize, **kwargs)
-        except:
-            safe_title = title.encode('ascii', 'ignore').decode('ascii')
-            return ax.set_title(safe_title, fontsize=fontsize, **kwargs)
+        safe_title = _ascii_safe_convert(str(title))
+        return ax.set_title(safe_title, fontsize=fontsize, fontfamily='Arial', **kwargs)
+    except Exception as e:
+        fallback_title = str(title).encode('ascii', 'ignore').decode('ascii')
+        return ax.set_title(fallback_title, fontsize=fontsize, **kwargs)
 
 def _safe_label_render(ax, xlabel=None, ylabel=None, fontsize=12):
-    """安全なラベル描画（絵文字・記号対応）"""
+    """安全なラベル描画（完全ASCII対応）"""
     if xlabel:
         try:
-            ax.set_xlabel(xlabel, fontsize=fontsize, fontfamily=JAPANESE_FONT)
+            safe_xlabel = _ascii_safe_convert(str(xlabel))
+            ax.set_xlabel(safe_xlabel, fontsize=fontsize, fontfamily='Arial')
         except:
-            ax.set_xlabel(xlabel, fontsize=fontsize)
+            ax.set_xlabel(str(xlabel).encode('ascii', 'ignore').decode('ascii'), fontsize=fontsize)
     
     if ylabel:
         try:
-            ax.set_ylabel(ylabel, fontsize=fontsize, fontfamily=JAPANESE_FONT)
+            safe_ylabel = _ascii_safe_convert(str(ylabel))
+            ax.set_ylabel(safe_ylabel, fontsize=fontsize, fontfamily='Arial')
         except:
-            ax.set_ylabel(ylabel, fontsize=fontsize)
+            ax.set_ylabel(str(ylabel).encode('ascii', 'ignore').decode('ascii'), fontsize=fontsize)
 
 def _safe_legend_render(ax, handles=None, labels=None, **kwargs):
-    """安全な凡例描画（絵文字・記号対応）"""
+    """安全な凡例描画（完全ASCII対応）"""
     try:
         if handles:
             legend = ax.legend(handles=handles, **kwargs)
         else:
             legend = ax.legend(**kwargs)
         
-        # 凡例フォント設定
+        # 凡例テキストをASCII安全に変換
         for text in legend.get_texts():
             try:
-                text.set_fontfamily(JAPANESE_FONT)
+                original_text = text.get_text()
+                safe_text = _ascii_safe_convert(original_text)
+                text.set_text(safe_text)
+                text.set_fontfamily('Arial')
             except:
                 pass
         
         return legend
     except:
-        # フォールバック
         return ax.legend(**kwargs)
 
 def _validate_data(y_true, y_pred, timestamps=None):
@@ -262,7 +388,6 @@ def analyze_lag_dependency(model, feature_names):
     try:
         importances = model.feature_importances_
     except AttributeError:
-        print(f"[WARNING] モデルに feature_importances_ 属性がありません")
         return {'lag_temp_percent': 0, 'rolling_temp_percent': 0, 'total_lag_percent': 0}
 
     total_importance = np.sum(importances)
@@ -293,7 +418,7 @@ def plot_feature_importance(model, feature_names, zone, horizon, save_path=None,
     try:
         importances = model.feature_importances_
     except AttributeError:
-        print(f"[WARNING] モデルに feature_importances_ 属性がありません")
+        print(f"⚠️ モデルに feature_importances_ 属性がありません")
         return None
 
     # 重要度分析
@@ -353,7 +478,7 @@ def plot_feature_importance(model, feature_names, zone, horizon, save_path=None,
 
     if save and save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
-        print(f"[SAVE] 特徴量重要度プロット保存: {save_path}")
+        print(f"📊 特徴量重要度プロット保存: {save_path}")
 
     return fig
 
@@ -371,7 +496,7 @@ def plot_comprehensive_time_series(y_true, y_pred, timestamps, zone, horizon,
 
     # 表示期間の設定
     end_time = timestamps[-1]
-        start_time = end_time - pd.Timedelta(hours=show_period_hours)
+    start_time = end_time - pd.Timedelta(hours=show_period_hours)
     period_mask = (timestamps >= start_time) & (timestamps <= end_time)
     
     if not period_mask.any():
@@ -419,7 +544,7 @@ def plot_comprehensive_time_series(y_true, y_pred, timestamps, zone, horizon,
     # タイトル設定（LAG警告含む）
     total_lag = lag_analysis['total_lag_percent']
     if total_lag > 30:
-        lag_info = f' [高LAG依存: {total_lag:.1f}% 警告]'
+        lag_info = f' [高LAG依存: {total_lag:.1f}%⚠️]'
         title_color = 'darkred'
     elif total_lag > 15:
         lag_info = f' [中LAG依存: {total_lag:.1f}%]'
@@ -457,7 +582,7 @@ def plot_comprehensive_time_series(y_true, y_pred, timestamps, zone, horizon,
 
     if save and save_path:
         plt.savefig(save_path, dpi=200, bbox_inches='tight', facecolor='white')
-        print(f"[SAVE] 時系列比較プロット保存: {save_path}")
+        print(f"📈 時系列比較プロット保存: {save_path}")
 
     return fig
 
@@ -521,417 +646,199 @@ def plot_accuracy_analysis(y_true, y_pred, zone, horizon, save_path=None,
 
     if save and save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
-        print(f"[SAVE] 精度分析プロット保存: {save_path}")
+        print(f"📊 精度分析プロット保存: {save_path}")
 
     return fig
 
 
-def plot_detailed_time_series_analysis(y_true, y_pred, timestamps, zone, horizon,
-                                      save_path=None, model_type="予測", save=True,
-                                      analysis_hours=2, model=None, feature_names=None):
-    """詳細時系列分析プロット（分単位での精密分析）"""
+def plot_model_reliability_dashboard(y_true, y_pred, timestamps, zone, horizon,
+                                   model=None, feature_names=None,
+                                   save_path=None, model_type="予測", save=True):
+    """モデル信頼性ダッシュボード（意思決定者向け）"""
     # データ検証
     y_true, y_pred, timestamps = _validate_data(y_true, y_pred, timestamps)
     
     if len(timestamps) == 0:
-        print(f"[WARNING] Zone {zone} のデータがありません")
+        print(f"⚠️ Zone {zone} のデータがありません")
         return None
 
-    # 分析期間の設定（デフォルト2時間）
-    end_time = timestamps[-1]
-    start_time = end_time - pd.Timedelta(hours=analysis_hours)
-    period_mask = (timestamps >= start_time) & (timestamps <= end_time)
+    # メトリクス計算
+    metrics = _calculate_metrics(y_true, y_pred)
     
-    if not period_mask.any():
-        max_points = min(len(timestamps), analysis_hours * 60)
-        timestamps_period = timestamps[-max_points:]
-        y_true_period = y_true[-max_points:]
-        y_pred_period = y_pred[-max_points:]
-    else:
-        timestamps_period = timestamps[period_mask]
-        y_true_period = y_true[period_mask]
-        y_pred_period = y_pred[period_mask]
-
-    # 正しい予測タイムスタンプ（未来時刻に配置）
-    prediction_timestamps = timestamps_period + pd.Timedelta(minutes=horizon)
-    current_time = timestamps_period[-1]
-
-    # プロット作成（大きめサイズで詳細表示）
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(20, 12))
-
-    # === 上段：詳細時系列比較 ===
-    # 実測値プロット（全点表示）
-    ax1.plot(timestamps_period, y_true_period, 'b-', linewidth=2,
-            marker='o', markersize=4, label='実測値', alpha=0.9)
-
-    # 予測値プロット（未来時刻、全点表示）
-    ax1.plot(prediction_timestamps, y_pred_period, 'r-', linewidth=2,
-            marker='s', markersize=3, label=f'予測値 (+{horizon}分)', alpha=0.9)
-
-    # 現在時刻ライン
-    ax1.axvline(x=current_time, color='green', linestyle='--', 
-               linewidth=2, label='現在時刻', alpha=0.8)
-    
-    # 未来予測領域をハイライト
-    future_start = current_time
-    future_end = prediction_timestamps[-1]
-    ax1.axvspan(future_start, future_end, alpha=0.15, color='yellow', 
-               label='未来予測領域')
-
     # LAG依存度分析
     lag_analysis = {'total_lag_percent': 0}
     if model is not None and feature_names is not None:
         lag_analysis = analyze_lag_dependency(model, feature_names)
-
-    # タイトル設定
-    total_lag = lag_analysis['total_lag_percent']
-    if total_lag > 30:
-        lag_info = f' [高LAG依存: {total_lag:.1f}% 警告]'
-        title_color = 'darkred'
-    elif total_lag > 15:
-        lag_info = f' [中LAG依存: {total_lag:.1f}%]'
-        title_color = 'darkorange'
-    elif total_lag > 0:
-        lag_info = f' [低LAG依存: {total_lag:.1f}%]'
-        title_color = 'darkgreen'
-    else:
-        lag_info = ''
-        title_color = 'black'
-
-    _safe_title_render(ax1, f'Zone {zone} - 詳細時系列分析 ({horizon}分予測, {analysis_hours}時間){lag_info}',
-                      fontsize=16, fontweight='bold', color=title_color)
-    _safe_label_render(ax1, ylabel='温度 (°C)', fontsize=12)
-    _safe_legend_render(ax1, fontsize=12, framealpha=0.9)
-
-    # 詳細時間軸設定（分単位）
-    if analysis_hours <= 1:
-        ax1.xaxis.set_major_locator(mdates.MinuteLocator(interval=5))
-        ax1.xaxis.set_minor_locator(mdates.MinuteLocator(interval=1))
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-    elif analysis_hours <= 2:
-        ax1.xaxis.set_major_locator(mdates.MinuteLocator(interval=10))
-        ax1.xaxis.set_minor_locator(mdates.MinuteLocator(interval=2))
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-    else:
-        ax1.xaxis.set_major_locator(mdates.MinuteLocator(interval=15))
-        ax1.xaxis.set_minor_locator(mdates.MinuteLocator(interval=5))
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))
-    
-    ax1.tick_params(axis='x', rotation=45, labelsize=10)
-    ax1.grid(True, linestyle='-', alpha=0.3, which='major')
-    ax1.grid(True, linestyle=':', alpha=0.2, which='minor')
-
-    # 統計情報表示
-    if len(y_true_period) > 0 and len(y_pred_period) > 0:
-        metrics = _calculate_metrics(y_true_period, y_pred_period)
-        stats_text = f'RMSE: {metrics["rmse"]:.3f}°C | MAE: {metrics["mae"]:.3f}°C | R²: {metrics["r2"]:.3f}'
-        _safe_text_render(ax1, 0.02, 0.98, stats_text, transform=ax1.transAxes,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.8),
-                         verticalalignment='top', fontsize=12, fontweight='bold', ha='left')
-
-        data_info = f'{len(y_true_period)} データ点 | 分析期間: {analysis_hours}時間'
-        _safe_text_render(ax1, 0.98, 0.02, data_info, transform=ax1.transAxes,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
-                         verticalalignment='bottom', ha='right', fontsize=11)
-
-    # === 下段：予測誤差の時系列分析 ===
-    # 時刻を合わせるため、実測値の時刻を予測時刻に調整して誤差計算
-    if len(y_true_period) == len(y_pred_period):
-        residuals = y_pred_period - y_true_period
-        
-        # 誤差の時系列プロット
-        ax2.plot(prediction_timestamps, residuals, 'purple', linewidth=2,
-                marker='o', markersize=3, label='予測誤差', alpha=0.8)
-        ax2.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
-        
-        # 誤差の統計的境界
-        mean_error = np.mean(residuals)
-        std_error = np.std(residuals)
-        ax2.axhline(y=mean_error, color='red', linestyle='--', linewidth=1, 
-                   label=f'平均誤差: {mean_error:.3f}°C')
-        ax2.axhline(y=mean_error + 2*std_error, color='orange', linestyle=':', 
-                   alpha=0.7, label=f'+2σ: {mean_error + 2*std_error:.3f}°C')
-        ax2.axhline(y=mean_error - 2*std_error, color='orange', linestyle=':', 
-                   alpha=0.7, label=f'-2σ: {mean_error - 2*std_error:.3f}°C')
-        
-        # 現在時刻ライン
-        ax2.axvline(x=current_time, color='green', linestyle='--', 
-                   linewidth=2, alpha=0.8)
-        
-        _safe_title_render(ax2, '予測誤差の時系列分析', fontsize=14, fontweight='bold')
-        _safe_label_render(ax2, xlabel='予測時刻', ylabel='予測誤差 (°C)', fontsize=12)
-        _safe_legend_render(ax2, fontsize=11)
-        
-        # 同じ時間軸設定
-        if analysis_hours <= 1:
-            ax2.xaxis.set_major_locator(mdates.MinuteLocator(interval=5))
-            ax2.xaxis.set_minor_locator(mdates.MinuteLocator(interval=1))
-            ax2.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        elif analysis_hours <= 2:
-            ax2.xaxis.set_major_locator(mdates.MinuteLocator(interval=10))
-            ax2.xaxis.set_minor_locator(mdates.MinuteLocator(interval=2))
-            ax2.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        else:
-            ax2.xaxis.set_major_locator(mdates.MinuteLocator(interval=15))
-            ax2.xaxis.set_minor_locator(mdates.MinuteLocator(interval=5))
-            ax2.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))
-        
-        ax2.tick_params(axis='x', rotation=45, labelsize=10)
-        ax2.grid(True, linestyle='-', alpha=0.3, which='major')
-        ax2.grid(True, linestyle=':', alpha=0.2, which='minor')
-        
-        # 誤差統計情報
-        error_stats = f'誤差統計 | 平均: {mean_error:.3f}°C | 標準偏差: {std_error:.3f}°C | 範囲: [{np.min(residuals):.3f}, {np.max(residuals):.3f}]°C'
-        _safe_text_render(ax2, 0.02, 0.98, error_stats, transform=ax2.transAxes,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lavender", alpha=0.8),
-                         verticalalignment='top', fontsize=10, ha='left')
-
-    plt.tight_layout()
-
-    if save and save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
-        print(f"[SAVE] 詳細時系列分析保存: {save_path}")
-
-    return fig
-
-
-def plot_thermostat_control_validation(model, feature_names, test_data, zone, horizon,
-                                      save_path=None, model_type="予測", save=True,
-                                      is_difference_model=False, current_temp_col=None):
-    """サーモON/OFF制御による予測温度変化の検証プロット"""
-    
-    # 必要な制御列の確認
-    ac_valid_col = f'AC_valid_{zone}'
-    ac_mode_col = f'AC_mode_{zone}'
-    ac_set_col = f'AC_set_{zone}'
-    
-    required_cols = [ac_valid_col, ac_mode_col, ac_set_col]
-    available_cols = [col for col in required_cols if col in test_data.columns]
-    
-    if len(available_cols) < 2:
-        print(f"[WARNING] 制御列が不足: {available_cols}")
-        return None
-    
-    # サンプルデータの準備（最新200点）
-    sample_data = test_data.tail(200).copy()
-    if len(sample_data) == 0:
-        return None
-    
-    print(f"\n🔬 Zone {zone} - サーモ制御検証実行中...")
-    print(f"  検証データ: {len(sample_data)}点")
-    print(f"  利用可能制御列: {available_cols}")
     
     # プロット作成
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(20, 16))
+    fig = plt.figure(figsize=(20, 12))
+    gs = fig.add_gridspec(3, 4, hspace=0.4, wspace=0.3)
     
-    # === 1. サーモON vs OFF比較 ===
-    if ac_valid_col in sample_data.columns:
-        # ベースライン（現在の設定）
-        baseline_pred = model.predict(sample_data[feature_names])
-        
-        # サーモON状態
-        test_data_on = sample_data.copy()
-        test_data_on[ac_valid_col] = 1  # サーモON
-        pred_on = model.predict(test_data_on[feature_names])
-        
-        # サーモOFF状態
-        test_data_off = sample_data.copy()
-        test_data_off[ac_valid_col] = 0  # サーモOFF
-        pred_off = model.predict(test_data_off[feature_names])
-        
-        # 差分予測の場合は温度に復元
-        if is_difference_model and current_temp_col:
-            current_temps = sample_data[current_temp_col]
-            baseline_temp = current_temps + baseline_pred
-            pred_on_temp = current_temps + pred_on
-            pred_off_temp = current_temps + pred_off
-        else:
-            baseline_temp = baseline_pred
-            pred_on_temp = pred_on
-            pred_off_temp = pred_off
-        
-        # 時系列プロット
-        time_index = range(len(sample_data))
-        ax1.plot(time_index, baseline_temp, 'g-', linewidth=2, label='ベースライン', alpha=0.8)
-        ax1.plot(time_index, pred_on_temp, 'r-', linewidth=2, label='サーモON', alpha=0.8)
-        ax1.plot(time_index, pred_off_temp, 'b-', linewidth=2, label='サーモOFF', alpha=0.8)
-        
-        _safe_title_render(ax1, f'Zone {zone} - サーモON/OFF制御検証', fontsize=14, fontweight='bold')
-        _safe_label_render(ax1, xlabel='時間ステップ', ylabel='予測温度 (°C)', fontsize=12)
-        _safe_legend_render(ax1, fontsize=11)
-        ax1.grid(True, alpha=0.3)
-        
-        # 統計情報
-        temp_diff_on_off = np.mean(pred_on_temp - pred_off_temp)
-        temp_diff_on_base = np.mean(pred_on_temp - baseline_temp)
-        temp_diff_off_base = np.mean(pred_off_temp - baseline_temp)
-        
-        stats_text = f'平均温度差:\nON vs OFF: {temp_diff_on_off:+.3f}°C\nON vs Base: {temp_diff_on_base:+.3f}°C\nOFF vs Base: {temp_diff_off_base:+.3f}°C'
-        _safe_text_render(ax1, 0.02, 0.98, stats_text, transform=ax1.transAxes,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.8),
-                         verticalalignment='top', fontsize=10, ha='left')
+    # === 1. 総合スコア表示 ===
+    ax_score = fig.add_subplot(gs[0, :2])
+    ax_score.axis('off')
     
-    # === 2. 冷房 vs 暖房モード比較 ===
-    if ac_mode_col in sample_data.columns:
-        # 冷房モード
-        test_data_cool = sample_data.copy()
-        test_data_cool[ac_mode_col] = 0  # 冷房
-        if ac_valid_col in test_data_cool.columns:
-            test_data_cool[ac_valid_col] = 1  # サーモON
-        pred_cool = model.predict(test_data_cool[feature_names])
-        
-        # 暖房モード
-        test_data_heat = sample_data.copy()
-        test_data_heat[ac_mode_col] = 1  # 暖房
-        if ac_valid_col in test_data_heat.columns:
-            test_data_heat[ac_valid_col] = 1  # サーモON
-        pred_heat = model.predict(test_data_heat[feature_names])
-        
-        # 差分予測の場合は温度に復元
-        if is_difference_model and current_temp_col:
-            current_temps = sample_data[current_temp_col]
-            pred_cool_temp = current_temps + pred_cool
-            pred_heat_temp = current_temps + pred_heat
+    # 信頼性スコア計算
+    r2_score = max(0, metrics['r2'])
+    mae_score = max(0, 1 - metrics['mae'] / 5.0)
+    lag_score = max(0, 1 - lag_analysis['total_lag_percent'] / 50.0)
+    
+    overall_score = (r2_score * 0.5 + mae_score * 0.3 + lag_score * 0.2) * 100
+    
+    # スコア色分け
+    if overall_score >= 80:
+        score_color = 'green'
+        score_status = '優秀'
+        score_emoji = '🟢'
+    elif overall_score >= 60:
+        score_color = 'orange'
+        score_status = '良好'
+        score_emoji = '🟡'
     else:
-            pred_cool_temp = pred_cool
-            pred_heat_temp = pred_heat
-        
-        # 時系列プロット
-        ax2.plot(time_index, pred_cool_temp, 'b-', linewidth=2, label='冷房モード', alpha=0.8)
-        ax2.plot(time_index, pred_heat_temp, 'r-', linewidth=2, label='暖房モード', alpha=0.8)
-        
-        _safe_title_render(ax2, f'Zone {zone} - 冷房/暖房モード比較', fontsize=14, fontweight='bold')
-        _safe_label_render(ax2, xlabel='時間ステップ', ylabel='予測温度 (°C)', fontsize=12)
-        _safe_legend_render(ax2, fontsize=11)
-        ax2.grid(True, alpha=0.3)
-        
-        # 統計情報
-        temp_diff_heat_cool = np.mean(pred_heat_temp - pred_cool_temp)
-        
-        stats_text = f'平均温度差:\n暖房 vs 冷房: {temp_diff_heat_cool:+.3f}°C'
-        _safe_text_render(ax2, 0.02, 0.98, stats_text, transform=ax2.transAxes,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightcoral", alpha=0.8),
-                         verticalalignment='top', fontsize=10, ha='left')
+        score_color = 'red'
+        score_status = '要改善'
+        score_emoji = '🔴'
     
-    # === 3. 設定温度変更の影響 ===
-    if ac_set_col in sample_data.columns:
-        current_setpoint = sample_data[ac_set_col].mean()
-        
-        # 高設定温度（+3°C）
-        test_data_high = sample_data.copy()
-        test_data_high[ac_set_col] = current_setpoint + 3
-        if ac_valid_col in test_data_high.columns:
-            test_data_high[ac_valid_col] = 1  # サーモON
-        pred_high = model.predict(test_data_high[feature_names])
-        
-        # 低設定温度（-3°C）
-        test_data_low = sample_data.copy()
-        test_data_low[ac_set_col] = current_setpoint - 3
-        if ac_valid_col in test_data_low.columns:
-            test_data_low[ac_valid_col] = 1  # サーモON
-        pred_low = model.predict(test_data_low[feature_names])
-        
-        # 現在設定温度
-        test_data_current = sample_data.copy()
-        if ac_valid_col in test_data_current.columns:
-            test_data_current[ac_valid_col] = 1  # サーモON
-        pred_current = model.predict(test_data_current[feature_names])
-        
-        # 差分予測の場合は温度に復元
-        if is_difference_model and current_temp_col:
-            current_temps = sample_data[current_temp_col]
-            pred_high_temp = current_temps + pred_high
-            pred_low_temp = current_temps + pred_low
-            pred_current_temp = current_temps + pred_current
-        else:
-            pred_high_temp = pred_high
-            pred_low_temp = pred_low
-            pred_current_temp = pred_current
-        
-        # 時系列プロット
-        ax3.plot(time_index, pred_low_temp, 'b-', linewidth=2, label=f'低設定 ({current_setpoint-3:.1f}°C)', alpha=0.8)
-        ax3.plot(time_index, pred_current_temp, 'g-', linewidth=2, label=f'現在設定 ({current_setpoint:.1f}°C)', alpha=0.8)
-        ax3.plot(time_index, pred_high_temp, 'r-', linewidth=2, label=f'高設定 ({current_setpoint+3:.1f}°C)', alpha=0.8)
-        
-        _safe_title_render(ax3, f'Zone {zone} - 設定温度変更の影響', fontsize=14, fontweight='bold')
-        _safe_label_render(ax3, xlabel='時間ステップ', ylabel='予測温度 (°C)', fontsize=12)
-        _safe_legend_render(ax3, fontsize=11)
-        ax3.grid(True, alpha=0.3)
-        
-        # 統計情報
-        temp_diff_high_low = np.mean(pred_high_temp - pred_low_temp)
-        temp_diff_high_current = np.mean(pred_high_temp - pred_current_temp)
-        temp_diff_current_low = np.mean(pred_current_temp - pred_low_temp)
-        
-        stats_text = f'平均温度差:\n高 vs 低: {temp_diff_high_low:+.3f}°C\n高 vs 現在: {temp_diff_high_current:+.3f}°C\n現在 vs 低: {temp_diff_current_low:+.3f}°C'
-        _safe_text_render(ax3, 0.02, 0.98, stats_text, transform=ax3.transAxes,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.8),
-                         verticalalignment='top', fontsize=10, ha='left')
+    # 大きなスコア表示（安全描画）
+    _safe_text_render(ax_score, 0.5, 0.7, f'{overall_score:.0f}', 
+                     fontsize=80, fontweight='bold', color=score_color, 
+                     transform=ax_score.transAxes)
+    _safe_text_render(ax_score, 0.5, 0.3, f'{score_emoji} 総合スコア ({score_status})', 
+                     fontsize=16, fontweight='bold', transform=ax_score.transAxes)
+    _safe_text_render(ax_score, 0.5, 0.1, f'Zone {zone} - {horizon}分予測', 
+                     fontsize=14, transform=ax_score.transAxes)
     
-    # === 4. 制御応答性の分析 ===
-    # 制御変更に対する予測温度の応答性を分析
-    ax4.axis('off')
+    # === 2. 詳細メトリクス ===
+    ax_metrics = fig.add_subplot(gs[0, 2:])
+    ax_metrics.axis('off')
     
-    # 検証結果のサマリー
-    validation_results = []
+    metrics_text = f"""📊 詳細メトリクス
+├─ R² Score:     {metrics['r2']:.3f}
+├─ RMSE:         {metrics['rmse']:.3f}°C
+├─ MAE:          {metrics['mae']:.3f}°C
+├─ LAG依存度:     {lag_analysis['total_lag_percent']:.1f}%
+└─ データ点数:    {len(y_true):,}"""
     
-    if ac_valid_col in sample_data.columns:
-        on_off_valid = temp_diff_on_off > 0  # サーモONの方が高い温度予測
-        validation_results.append(f"サーモON/OFF: {'✅ 妥当' if on_off_valid else '❌ 異常'} ({temp_diff_on_off:+.3f}°C)")
+    _safe_text_render(ax_metrics, 0.1, 0.9, metrics_text, fontsize=14, 
+                     fontfamily='monospace', transform=ax_metrics.transAxes, ha='left', va='top')
     
-    if ac_mode_col in sample_data.columns:
-        heat_cool_valid = temp_diff_heat_cool > 0  # 暖房の方が高い温度予測
-        validation_results.append(f"暖房/冷房: {'✅ 妥当' if heat_cool_valid else '❌ 異常'} ({temp_diff_heat_cool:+.3f}°C)")
+    # === 3. 時系列比較 ===
+    ax_ts = fig.add_subplot(gs[1, :])
     
-    if ac_set_col in sample_data.columns:
-        setpoint_valid = temp_diff_high_low > 0  # 高設定の方が高い温度予測
-        validation_results.append(f"設定温度: {'✅ 妥当' if setpoint_valid else '❌ 異常'} ({temp_diff_high_low:+.3f}°C)")
+    # 最新24時間のデータ
+    show_hours = 24
+    end_time = timestamps[-1]
+    start_time = end_time - pd.Timedelta(hours=show_hours)
+    period_mask = (timestamps >= start_time) & (timestamps <= end_time)
     
-    # 総合判定
-    valid_count = sum(1 for result in validation_results if '✅' in result)
-    total_count = len(validation_results)
-    overall_validity = valid_count == total_count
+    if period_mask.any():
+        ts_period = timestamps[period_mask]
+        y_true_period = y_true[period_mask]
+        y_pred_period = y_pred[period_mask]
+    else:
+        max_points = min(len(timestamps), show_hours * 60)
+        ts_period = timestamps[-max_points:]
+        y_true_period = y_true[-max_points:]
+        y_pred_period = y_pred[-max_points:]
     
-    summary_text = f"""制御応答性検証結果
-
-{chr(10).join(validation_results)}
-
-総合判定: {'✅ 物理的に妥当' if overall_validity else '⚠️ 要確認'}
-妥当性スコア: {valid_count}/{total_count} ({valid_count/total_count*100:.1f}%)
-
-検証データ: {len(sample_data)}点
-予測ホライゾン: {horizon}分
-モデルタイプ: {model_type}"""
+    # 予測タイムスタンプ（未来）
+    pred_timestamps = ts_period + pd.Timedelta(minutes=horizon)
     
-    _safe_text_render(ax4, 0.1, 0.9, summary_text, transform=ax4.transAxes,
-            bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgreen" if overall_validity else "lightyellow", alpha=0.8),
-                     verticalalignment='top', fontsize=12, ha='left', fontfamily='monospace')
+    # プロット
+    ax_ts.plot(ts_period, y_true_period, 'b-', linewidth=3, 
+              label='実測値', alpha=0.9, marker='o', markersize=2)
+    ax_ts.plot(pred_timestamps, y_pred_period, 'r-', linewidth=2.5,
+              label=f'予測値（+{horizon}分）', alpha=0.8, marker='s', markersize=2)
     
-    # 全体タイトル
+    # 信頼区間
+    residuals = y_pred_period - y_true_period
+    std_residual = np.std(residuals)
+    upper_bound = y_pred_period + 2 * std_residual
+    lower_bound = y_pred_period - 2 * std_residual
+    
+    ax_ts.fill_between(pred_timestamps, lower_bound, upper_bound, 
+                      alpha=0.2, color='red', label='95%信頼区間')
+    
+    _safe_title_render(ax_ts, '📈 最新24時間の予測性能', fontsize=16, fontweight='bold')
+    _safe_label_render(ax_ts, ylabel='温度 (°C)', fontsize=12)
+    _safe_legend_render(ax_ts, fontsize=12)
+    ax_ts.grid(True, alpha=0.3)
+    _setup_time_axis(ax_ts, show_hours + horizon/60)
+    
+    # === 4. 誤差分布 ===
+    ax_error = fig.add_subplot(gs[2, :2])
+    
+    residuals = y_pred - y_true
+    ax_error.hist(residuals, bins=50, alpha=0.7, color='skyblue', edgecolor='black')
+    ax_error.axvline(x=0, color='red', linestyle='--', linewidth=2)
+    ax_error.axvline(x=np.mean(residuals), color='orange', linestyle='-', linewidth=2,
+                    label=f'平均誤差: {np.mean(residuals):.3f}°C')
+    
+    _safe_title_render(ax_error, '📊 誤差分布', fontsize=14, fontweight='bold')
+    _safe_label_render(ax_error, xlabel='予測誤差 (°C)', ylabel='頻度', fontsize=12)
+    _safe_legend_render(ax_error, fontsize=10)
+    ax_error.grid(True, alpha=0.3)
+    
+    # === 5. 特徴量重要度トップ5 ===
+    ax_feat = fig.add_subplot(gs[2, 2:])
+    
+    if model is not None and feature_names is not None:
+        try:
+            importances = model.feature_importances_
+            feat_df = pd.DataFrame({
+                'feature': feature_names,
+                'importance': importances
+            }).sort_values('importance', ascending=False).head(5)
+            
+            bars = ax_feat.barh(range(len(feat_df)), feat_df['importance'])
+            ax_feat.set_yticks(range(len(feat_df)))
+            ax_feat.set_yticklabels(feat_df['feature'], fontsize=10)
+            ax_feat.invert_yaxis()
+            
+            # LAG特徴量を色分け
+            colors = ['red' if 'lag' in feat.lower() or 'rolling' in feat.lower() 
+                     else 'skyblue' for feat in feat_df['feature']]
+            for bar, color in zip(bars, colors):
+                bar.set_color(color)
+            
+            _safe_title_render(ax_feat, '🔝 重要特徴量 Top5', fontsize=14, fontweight='bold')
+            _safe_label_render(ax_feat, xlabel='重要度', fontsize=12)
+            ax_feat.grid(True, alpha=0.3, axis='x')
+            
+        except:
+            _safe_text_render(ax_feat, 0.5, 0.5, '特徴量重要度\n取得不可',
+                            fontsize=14, transform=ax_feat.transAxes)
+            ax_feat.axis('off')
+    else:
+        _safe_text_render(ax_feat, 0.5, 0.5, '特徴量重要度\n情報なし',
+                        fontsize=14, transform=ax_feat.transAxes)
+        ax_feat.axis('off')
+    
+    # 全体タイトル（安全描画）
     try:
-        fig.suptitle(f'Zone {zone} - サーモ制御応答性検証 ({horizon}分予測)', 
-                    fontsize=18, fontweight='bold', y=0.95, fontfamily=JAPANESE_FONT)
+        fig.suptitle(f'🎯 {model_type}モデル信頼性ダッシュボード', 
+                    fontsize=24, fontweight='bold', y=0.95, fontfamily=JAPANESE_FONT)
     except:
-        fig.suptitle(f'Zone {zone} - サーモ制御応答性検証 ({horizon}分予測)', 
-                    fontsize=18, fontweight='bold', y=0.95)
-    
-    plt.tight_layout()
-    
+        fig.suptitle(f'🎯 {model_type}モデル信頼性ダッシュボード', 
+                    fontsize=24, fontweight='bold', y=0.95)
+
     if save and save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
-        print(f"[SAVE] サーモ制御検証プロット保存: {save_path}")
-    
+        print(f"🎯 モデル信頼性ダッシュボード保存: {save_path}")
+
     return fig
 
+
+# ===== 統合レポート生成関数 =====
 
 def create_optimized_visualization_report(model, feature_names, y_true, y_pred,
                                         timestamps, metrics, zone, horizon,
                                         model_type="予測", save_dir="Output/visualizations"):
-    """最適化された可視化レポート（制御検証追加版）"""
+    """最適化された可視化レポート（重複除去版）"""
     os.makedirs(save_dir, exist_ok=True)
     created_files = {}
 
-    print(f"[INFO] Zone {zone} の可視化レポートを作成中...")
+    print(f"🎨 Zone {zone} の最適化可視化レポートを作成中...")
 
     # 1. 特徴量重要度分析
     save_path = os.path.join(save_dir, f"feature_importance_zone_{zone}_horizon_{horizon}.png")
@@ -958,18 +865,18 @@ def create_optimized_visualization_report(model, feature_names, y_true, y_pred,
         created_files['accuracy_analysis'] = save_path
         plt.close(fig)
 
-    # 4. 詳細時系列分析
-    save_path = os.path.join(save_dir, f"detailed_time_series_zone_{zone}_horizon_{horizon}.png")
-    fig = plot_detailed_time_series_analysis(y_true, y_pred, timestamps, zone, horizon,
-                                            save_path=save_path, model_type=model_type,
-                                            analysis_hours=2, model=model, feature_names=feature_names)
+    # 4. 信頼性ダッシュボード
+    save_path = os.path.join(save_dir, f"reliability_dashboard_zone_{zone}_horizon_{horizon}.png")
+    fig = plot_model_reliability_dashboard(y_true, y_pred, timestamps, zone, horizon,
+                                          model=model, feature_names=feature_names,
+                                          save_path=save_path, model_type=model_type)
     if fig:
-        created_files['detailed_time_series'] = save_path
+        created_files['reliability_dashboard'] = save_path
         plt.close(fig)
 
-    print(f"[OK] Zone {zone} 可視化レポート完了:")
+    print(f"✅ Zone {zone} 可視化レポート完了:")
     for viz_type, path in created_files.items():
-        print(f"  [SAVE] {viz_type}: {path}")
+        print(f"  📊 {viz_type}: {path}")
 
     return created_files
 
@@ -1015,7 +922,7 @@ def plot_method_comparison(direct_metrics, diff_metrics, zone, horizon,
             else:
                 improvement = ((direct_values[i] - diff_values[i]) / direct_values[i]) * 100
             improvements.append(improvement)
-        else:
+            else:
             improvements.append(0)
 
     # 改善率プロット
@@ -1038,7 +945,7 @@ def plot_method_comparison(direct_metrics, diff_metrics, zone, horizon,
 
     if save and save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
-        print(f"[SAVE] 手法比較プロット保存: {save_path}")
+        print(f"📊 手法比較プロット保存: {save_path}")
 
     return fig
 
@@ -1050,8 +957,7 @@ __all__ = [
     'plot_feature_importance',
     'plot_comprehensive_time_series', 
     'plot_accuracy_analysis',
-    'plot_detailed_time_series_analysis',
-    'plot_thermostat_control_validation',
+    'plot_model_reliability_dashboard',
     'plot_method_comparison',
     
     # レポート生成

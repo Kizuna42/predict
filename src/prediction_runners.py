@@ -10,6 +10,8 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
+from sklearn.metrics import r2_score
+import matplotlib.pyplot as plt
 
 # 設定のインポート
 from src.config import (
@@ -58,11 +60,13 @@ from src.models.evaluation import (
 # 可視化関数のインポート
 from src.utils.basic_plots import (
     plot_feature_importance,
-    plot_time_series_comparison,
-    plot_scatter_analysis,
-    plot_comparison_analysis,
-    create_comprehensive_visualization_report,
-    create_comprehensive_minute_analysis_report
+    plot_comprehensive_time_series,
+    plot_accuracy_analysis,
+    plot_detailed_time_series_analysis,
+    plot_thermostat_control_validation,
+    plot_method_comparison,
+    create_optimized_visualization_report,
+    analyze_lag_dependency
 )
 
 # データ検証ユーティリティ
@@ -343,53 +347,139 @@ class PredictionRunner:
         return results
 
     def _create_direct_prediction_visualizations(self, model, X_test, y_test, y_pred, zone, horizon, feature_cols):
-        """直接予測の可視化を作成"""
+        """直接予測の可視化を作成（サーモ制御検証追加版）"""
         try:
-            # 特徴量重要度プロット
-            plot_feature_importance(
-                model, feature_cols, zone, horizon,
-                self.viz_dir, prefix="direct"
+            # タイムスタンプを取得（テストデータのインデックス）
+            timestamps = X_test.index
+            
+            # メトリクス計算
+            metrics = {
+                'rmse': np.sqrt(np.mean((y_pred - y_test)**2)),
+                'mae': np.mean(np.abs(y_pred - y_test)),
+                'r2': r2_score(y_test, y_pred) if len(y_test) > 1 else 0
+            }
+            
+            # 最適化された可視化システム
+            visualization_files = create_optimized_visualization_report(
+                model=model,
+                feature_names=feature_cols,
+                y_true=y_test.values,
+                y_pred=y_pred,
+                timestamps=timestamps,
+                metrics=metrics,
+                zone=zone,
+                horizon=horizon,
+                model_type="直接予測",
+                save_dir=str(self.viz_dir)
             )
-
-            # 時系列比較プロット
-            plot_time_series_comparison(
-                y_test, y_pred, zone, horizon,
-                self.viz_dir, prefix="direct"
+            
+            # サーモ制御検証（新規追加）
+            print(f"\n🔬 サーモ制御応答性検証実行中...")
+            control_validation_path = self.viz_dir / f"thermostat_control_validation_zone_{zone}_horizon_{horizon}.png"
+            
+            # テストデータを使用してサーモ制御検証
+            control_fig = plot_thermostat_control_validation(
+                model=model,
+                feature_names=feature_cols,
+                test_data=X_test,
+                zone=zone,
+                horizon=horizon,
+                save_path=str(control_validation_path),
+                model_type="直接予測",
+                save=True,
+                is_difference_model=False,
+                current_temp_col=None
             )
-
-            # 散布図分析
-            plot_scatter_analysis(
-                y_test, y_pred, zone, horizon,
-                self.viz_dir, prefix="direct"
-            )
+            
+            if control_fig:
+                plt.close(control_fig)
+                print(f"[SAVE] サーモ制御検証: {control_validation_path}")
+            
+            total_files = len(visualization_files) + (1 if control_fig else 0)
+            print(f"✅ 直接予測可視化完了: {total_files}個のファイル作成")
 
         except Exception as e:
-            print(f"可視化作成エラー: {e}")
+            print(f"❌ 直接予測可視化作成エラー: {e}")
 
     def _create_difference_prediction_visualizations(self, model, X_test, y_test, current_temps, zone, horizon, feature_cols):
-        """差分予測の可視化を作成"""
+        """差分予測の可視化を作成（サーモ制御検証追加版）"""
         try:
-            # 特徴量重要度プロット
-            plot_feature_importance(
-                model, feature_cols, zone, horizon,
-                self.viz_dir, prefix="difference"
-            )
-
-            # 差分予測特有の可視化
+            # 予測実行
             y_pred = model.predict(X_test)
-            plot_time_series_comparison(
-                y_test, y_pred, zone, horizon,
-                self.viz_dir, prefix="difference"
+            
+            # タイムスタンプを取得
+            timestamps = X_test.index
+            
+            # 復元温度計算
+            restored_temps = current_temps.values + y_pred
+            actual_future_temps = current_temps.values + y_test.values
+            
+            # メトリクス計算（差分）
+            diff_metrics = {
+                'rmse': np.sqrt(np.mean((y_pred - y_test.values)**2)),
+                'mae': np.mean(np.abs(y_pred - y_test.values)),
+                'r2': r2_score(y_test.values, y_pred) if len(y_test) > 1 else 0
+            }
+            
+            # メトリクス計算（復元温度）
+            restored_metrics = {
+                'restored_rmse': np.sqrt(np.mean((restored_temps - actual_future_temps)**2)),
+                'restored_mae': np.mean(np.abs(restored_temps - actual_future_temps)),
+                'restored_r2': r2_score(actual_future_temps, restored_temps) if len(actual_future_temps) > 1 else 0
+            }
+            
+            # 差分予測の可視化
+            diff_visualization_files = create_optimized_visualization_report(
+                model=model,
+                feature_names=feature_cols,
+                y_true=y_test.values,
+                y_pred=y_pred,
+                timestamps=timestamps,
+                metrics=diff_metrics,
+                zone=zone,
+                horizon=horizon,
+                model_type="差分予測",
+                save_dir=str(self.viz_dir)
             )
-
-            # 復元温度での散布図分析
-            restored_temps = restore_temperature_from_difference(y_pred, current_temps)
-            actual_future_temps = current_temps + y_test
-
-            plot_scatter_analysis(
-                actual_future_temps, restored_temps, zone, horizon,
-                self.viz_dir, prefix="difference_restored"
+            
+            # 復元温度の可視化
+            restored_visualization_files = create_optimized_visualization_report(
+                model=model,
+                feature_names=feature_cols,
+                y_true=actual_future_temps,
+                y_pred=restored_temps,
+                timestamps=timestamps,
+                metrics=restored_metrics,
+                zone=zone,
+                horizon=horizon,
+                model_type="復元温度",
+                save_dir=str(self.viz_dir)
             )
+            
+            # サーモ制御検証（新規追加）
+            print(f"\n🔬 サーモ制御応答性検証実行中...")
+            control_validation_path = self.viz_dir / f"thermostat_control_validation_zone_{zone}_horizon_{horizon}.png"
+            
+            # テストデータを使用してサーモ制御検証
+            control_fig = plot_thermostat_control_validation(
+                model=model,
+                feature_names=feature_cols,
+                test_data=X_test,
+                zone=zone,
+                horizon=horizon,
+                save_path=str(control_validation_path),
+                model_type="差分予測",
+                save=True,
+                is_difference_model=True,
+                current_temp_col=f'sens_temp_{zone}'
+            )
+            
+            if control_fig:
+                plt.close(control_fig)
+                print(f"[SAVE] サーモ制御検証: {control_validation_path}")
+            
+            total_files = len(diff_visualization_files) + len(restored_visualization_files) + (1 if control_fig else 0)
+            print(f"✅ 差分予測可視化完了: {total_files}個のファイル作成")
 
         except Exception as e:
-            print(f"差分予測可視化作成エラー: {e}") 
+            print(f"❌ 差分予測可視化作成エラー: {e}") 
